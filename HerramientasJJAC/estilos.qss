@@ -1,76 +1,136 @@
 /* 
 ================================================================================
     HOJA DE ESTILOS QSS PARA "HERRAMIENTAS JJAC"
-    TEMA OSCURO MODERNO
-    
-    Paleta de Colores:
-    - Fondo Principal: #2c3e50
-    - Fondo de Contenido: #34495e
-    - Fondo de Sidebar: #233140
-    - Texto Principal: #ecf0f1
-    - Acento Primario (Azul): #3498db
-    - Éxito (Verde): #2ecc71
-    - Error (Rojo): #e74c3c
-    - Advertencia (Naranja): #f39c12
+    TEMA OSCURO MODERNO Y COHESIVO
 ================================================================================
 */
 
-/* === ESTILOS GLOBALES === */
+/* --- 1. Estilos Globales --- */
+QMainWindow, QDialog, QMessageBox {
+    background-color: #2c3e50;
+}
+
 QWidget {
-    background-color: #2c3e50;
-    color: #ecf0f1;
-    font-family: "Segoe UI", "Roboto", "Helvetica Neue", "Arial", sans-serif;
-    font-size: 10pt;
-}
-
-QMainWindow {
-    background-color: #2c3e50;
-}
-
-/* === SIDEBAR / MENÚ LATERAL === */
-#Sidebar {
-    background-color: #233140;
-}
-
-#Sidebar QPushButton {
-    background-color: transparent;
-    color: #ecf0f1;
-    border: none;
-    padding: 12px 15px;
-    text-align: left;
-    font-weight: bold;
-    border-radius: 4px;
-}
-
-#Sidebar QPushButton:hover {
     background-color: #34495e;
+    color: #ecf0f1;
+    font-family: "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
+    font-size: 10pt;
+    border: none;
 }
 
-#Sidebar QPushButton:checked {
-    background-color: #3498db;
+/* --- 2. Sidebar / Menú de Navegación --- */
+QWidget#Sidebar {
+    background-color: #233140;
+    border-right: 1px solid #1a252f;
+}
+
+QPushButton#ToggleButton {
+    background-color: transparent;
+    border: 1px solid #566573;
+    border-radius: 5px;
+    color: #ecf0f1;
+    font-size: 14pt;
+    font-weight: bold;
+}
+QPushButton#ToggleButton:hover {
+    background-color: #566573;
+    border-color: #3498db;
+}
+
+
+/* === ESTILOS PARA EL QTreeWidget (MENÚ DE ÁRBOL) === */
+QTreeWidget#SidebarTree {
+    background-color: transparent;
+    border: none;
+    color: #bdc3c7; /* Color de texto para ítems inactivos */
+    font-size: 11pt;
+    outline: 0; /* Quita el borde de foco punteado */
+}
+
+/* Ítems de Categoría (ej. "PROCESAMIENTO") */
+QTreeWidget#SidebarTree::item:disabled {
+    color: #95a5a6; /* Texto más opaco para las categorías */
+    font-weight: bold;
+    text-transform: uppercase;
+    padding-top: 15px; /* Espacio extra arriba */
+    padding-bottom: 5px;
+}
+
+/* Ítems de Herramienta (seleccionables) */
+QTreeWidget#SidebarTree::item {
+    padding: 10px 15px;
+    border-radius: 5px;
+}
+
+/* --- EFECTO HOVER --- */
+/* Estilo para un ítem cuando el ratón está ENCIMA */
+QTreeWidget#SidebarTree::item:hover {
+    background-color: #2c3e50; /* Un color de fondo sutil */
+    color: #ffffff;             /* Hace el texto más brillante */
+}
+
+/* Estilo para el ítem actualmente seleccionado */
+QTreeWidget#SidebarTree::item:selected {
+    background-color: #3498db; /* Azul de acento */
     color: #ffffff;
 }
 
-/* === ÁREA DE CONTENIDO PRINCIPAL === */
-#TabContentWidget {
-    background-color: #34495e;
+/* Quitar el estilo de las flechas para que Qt use las suyas por defecto */
+QTreeWidget::branch {
+    background-color: transparent;
+}
+
+/* --- 3. Área de Contenido Principal (Pestañas) --- */
+/* Esta regla se aplica al widget que contiene el título y los QGroupBox */
+QWidget#TabContentWidget {
+    background-color: #34495e; /* Fondo de contenido principal */
     border: none;
 }
 
-/* === WIDGETS DE ENTRADA DE TEXTO === */
-QLineEdit, QTextEdit, QPlainTextEdit {
-    background-color: #2c3e50;
-    color: #ecf0f1;
-    border: 1px solid #2c3e50;
-    border-radius: 4px;
-    padding: 6px;
+QLabel#AyudaTitulo, QLabel#WidgetTitleLabel { /* Para los títulos de cada pestaña */
+    font-size: 16pt;
+    font-weight: bold;
+    color: #ffffff;
+    padding: 10px 0; /* Espaciado vertical */
+    border-bottom: 1px solid #4a6a8a;
+    margin-bottom: 10px;
 }
 
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+/* --- 4. Contenedores y Widgets de Entrada --- */
+QGroupBox {
+    border: 1px solid #2c3e50; /* Borde más oscuro */
+    border-radius: 8px;
+    margin-top: 10px;
+    padding: 20px 10px 10px 10px; /* Aumentamos el padding superior */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 5px;
+    color: #bdc3c7;
+    background-color: #34495e; /* Fondo del título para cortar el borde */
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QTextBrowser {
+    background-color: #2c3e50;
+    color: #ecf0f1;
+    border: 1px solid #566573; /* Borde sutil */
+    border-radius: 4px;
+    padding: 8px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QTextBrowser:focus {
     border: 1px solid #3498db;
 }
 
-/* === BOTONES === */
+QLineEdit[readOnly="true"] {
+    background-color: #3d566e;
+}
+
+/* --- 5. Botones --- */
+/* Botón genérico (como el "Seleccionar...") */
 QPushButton {
     background-color: #3498db;
     color: #ffffff;
@@ -79,142 +139,35 @@ QPushButton {
     border-radius: 4px;
     font-weight: bold;
 }
+QPushButton:hover { background-color: #4aa3df; }
+QPushButton:pressed { background-color: #2980b9; }
+QPushButton:disabled { background-color: #566573; color: #95a5a6; }
 
-/* Estilo para botones principales de acción */
-#BotonPrincipal {
-    background-color: #2ecc71; /* Verde éxito para acciones primarias */
+/* Botón de acción principal (verde) */
+QPushButton#BotonPrincipal {
+    background-color: #27ae60;
+    font-size: 12pt;
 }
+QPushButton#BotonPrincipal:hover { background-color: #2ecc71; }
+QPushButton#BotonPrincipal:pressed { background-color: #229954; }
 
-#BotonPrincipal:hover {
-    background-color: #29b765;
-}
-
-QPushButton:hover {
-    background-color: #4aa3df;
-}
-
-QPushButton:pressed {
-    background-color: #2980b9;
-}
-
-QPushButton:disabled {
+/* Botones de selección (Mover/Copiar) */
+QPushButton[checkable="true"] {
     background-color: #566573;
-    color: #95a5a6;
+    color: #bdc3c7;
+    font-weight: normal;
 }
-
-/* === GROUPBOX Y FRAMES PARA AGRUPAR CONTENIDO === */
-QGroupBox {
-    background-color: #34495e;
-    border: 1px solid #4a6a8a; /* Borde sutil y cohesivo */
-    border-radius: 8px; /* Bordes más suaves */
-    margin-top: 10px;
-    padding-top: 15px;
-}
-
-QFrame {
-    border: 1px solid #4a6a8a;
-    border-radius: 8px;
-}
-
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    padding: 0 5px;
-    color: #ecf0f1;
+QPushButton[checkable="true"]:hover:!checked { background-color: #6c7a89; }
+QPushButton[checkable="true"]:checked {
+    background-color: #3498db;
+    color: #ffffff;
+    border: 1px solid #ffffff;
     font-weight: bold;
 }
 
-/* === LABELS Y TEXTO === */
+/* --- 6. Componentes Misceláneos --- */
 QLabel {
     background-color: transparent;
-    color: #ecf0f1;
-    qproperty-alignment: 'AlignCenter'; /* Centrado por defecto */
-}
-
-/* Labels para títulos o importantes */
-#AyudaTitulo {
-    font-size: 16pt;
-    font-weight: bold;
-    color: #ffffff;
-    padding-bottom: 10px;
-    text-align: center;
-}
-
-/* === COMBOBOX === */
-QComboBox {
-    background-color: #2c3e50;
-    border: 1px solid #2c3e50;
-    border-radius: 4px;
-    padding: 5px;
-}
-
-QComboBox:focus {
-    border: 1px solid #3498db;
-}
-
-QComboBox::drop-down {
-    border: none;
-}
-
-QComboBox::down-arrow {
-    image: url(./gui/icons/down_arrow.png); /* Necesitarás un ícono de flecha blanca */
-}
-
-QComboBox QAbstractItemView {
-    background-color: #2c3e50;
-    border: 1px solid #3498db;
-    selection-background-color: #3498db;
-}
-
-/* === VENTANA DE RESULTADOS / LOGS (QTextBrowser) === */
-QTextBrowser {
-    background-color: #233140; /* Fondo más oscuro para contraste */
-    border: 1px solid #2c3e50;
-    border-radius: 4px;
-}
-
-/* === BARRAS DE SCROLL === */
-QScrollBar:vertical {
-    border: none;
-    background: #2c3e50;
-    width: 12px;
-    margin: 0px 0px 0px 0px;
-}
-
-QScrollBar::handle:vertical {
-    background: #566573;
-    min-height: 20px;
-    border-radius: 6px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: #3498db;
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollBar:horizontal {
-    border: none;
-    background: #2c3e50;
-    height: 12px;
-    margin: 0px 0px 0px 0px;
-}
-
-QScrollBar::handle:horizontal {
-    background: #566573;
-    min-width: 20px;
-    border-radius: 6px;
-}
-
-QScrollBar::handle:horizontal:hover {
-    background: #3498db;
-}
-
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-    width: 0px;
 }
 
 /* === TABLAS === */
@@ -241,6 +194,37 @@ QTableView::item:selected {
     color: #ffffff;
 }
 
+/* Estilo para QTreeWidget */
+QTreeWidget {
+    background-color: #233140;
+    border: none;
+    color: #ecf0f1;
+}
+
+QTreeWidget::item {
+    padding: 8px 5px;
+}
+
+QTreeWidget::item:hover {
+    background-color: #34495e; /* Fondo de contenido para hover */
+}
+
+QTreeWidget::item:selected {
+    background-color: #3498db; /* Acento primario para seleccionado */
+    color: #ffffff;
+}
+
+/* Estilo para los indicadores de expansión/colapso */
+QTreeWidget::branch:has-children:!closed:!selected,
+QTreeWidget::branch:has-children:closed:!selected {
+    image: none; /* Eliminar el icono predeterminado */
+}
+
+QTreeWidget::branch:has-children:!closed:selected,
+QTreeWidget::branch:has-children:closed:selected {
+    image: none; /* Eliminar el icono predeterminado */
+}
+
 /* === BARRA DE PROGRESO === */
 QProgressBar {
     border: 1px solid #2c3e50;
@@ -249,50 +233,11 @@ QProgressBar {
     color: #ecf0f1;
 }
 
-QProgressBar::chunk {
-    background-color: #3498db;
-    border-radius: 5px;
+/* ScrollBars */
+QScrollBar:vertical {
+    border: none; background: #2c3e50; width: 12px; margin: 0;
 }
-
-QPushButton#ToggleButton {
-    background-color: transparent;
-    border: 1px solid #566573; /* Reducimos el borde para más espacio interno */
-    border-radius: 5px;       /* Un borde más sutil que el circular */
-    color: #ecf0f1;
-    font-family: "Segoe UI Symbol"; /* Aseguramos la fuente correcta */
-    font-size: 16pt;          /* Tamaño del símbolo */
-    font-weight: bold;
-    padding: 0;                 /* <-- CLAVE: Eliminamos el padding interno */
+QScrollBar::handle:vertical {
+    background: #566573; min-height: 25px; border-radius: 6px;
 }
-
-QPushButton#ToggleButton:hover {
-    background-color: #566573;
-    border-color: #3498db;
-}
-
-QPushButton#ToggleButton:pressed {
-    background-color: #3498db;
-}
-
-/* ========================================================== */
-/* ===  ESTILOS PARA BOTONES DE SELECCIÓN (TIPO TOGGLE)   === */
-/* ========================================================== */
-/* Estilo para el botón cuando NO está seleccionado (checkable=true) */
-QPushButton[checkable="true"] {
-    background-color: #566573;  /* Un gris oscuro, como un botón inactivo */
-    color: #bdc3c7;            /* Texto grisáceo para indicar que no es la opción activa */
-    font-weight: normal;
-}
-
-/* Estilo para cuando el ratón pasa por encima y NO está seleccionado */
-QPushButton[checkable="true"]:hover:!checked {
-    background-color: #6c7a89;  /* Un gris un poco más claro para el feedback visual */
-}
-
-/* Estilo para el botón cuando SÍ está seleccionado (checked=true) */
-QPushButton[checkable="true"]:checked {
-    background-color: #3498db;  /* Mismo color que un botón normal para consistencia */
-    color: #ffffff;            /* Texto blanco brillante */
-    border: 1px solid #ffffff;  /* Un borde sutil para destacarlo como la selección actual */
-    font-weight: bold;
-}
+QScrollBar::handle:vertical:hover { background: #6c7a89; }
