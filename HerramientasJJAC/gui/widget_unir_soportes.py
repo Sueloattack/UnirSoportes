@@ -1,9 +1,10 @@
 # gui/widget_unir_soportes.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
-                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout)
-from PySide6.QtCore import QThread
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, QHBoxLayout, 
+                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout, QGroupBox)
+from PySide6.QtCore import Qt, QThread
 from logica.logica_unir_soportes import WorkerUnirSoportes
+from .componentes_comunes import SelectorCarpeta
 
 class ResultadosDialog(QDialog):
     """
@@ -54,7 +55,7 @@ class ResultadosDialog(QDialog):
 
 class WidgetUnirSoportes(QWidget):
     """
-    Widget principal para la herramienta "Unir Soportes".
+    Widget principal para la herramienta "Unir Soportes", con layout actualizado.
     """
     def __init__(self):
         super().__init__()
@@ -67,18 +68,33 @@ class WidgetUnirSoportes(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        # Selector de carpeta
-        from .componentes_comunes import SelectorCarpeta
-        self.selector_carpeta = SelectorCarpeta("Carpeta de Cuenta de Cobro:")
-        layout_principal.addWidget(self.selector_carpeta)
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Unir Soportes para radicar")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
 
-        # Frame de selección de modo
-        frame_modo = QFrame()
-        frame_modo.setFrameShape(QFrame.StyledPanel)
-        layout_modo = QGridLayout(frame_modo)
+        # 2. Grupo de Selección de Carpetas
+        group_seleccion = QGroupBox("1. Selección de Carpetas")
+        layout_seleccion = QHBoxLayout(group_seleccion)
+        
+        self.entry_carpeta = QLineEdit()
+        self.entry_carpeta.setPlaceholderText("Seleccione la carpeta de la cuenta de cobro...")
+        self.entry_carpeta.setReadOnly(True)
+        boton_examinar = QPushButton("Seleccionar...")
+        boton_examinar.clicked.connect(self.seleccionar_carpeta)
 
-        label_modo = QLabel("Modo de Operación:")
+        layout_seleccion.addWidget(self.entry_carpeta)
+        layout_seleccion.addWidget(boton_examinar)
+        layout_principal.addWidget(group_seleccion)
+        
+        # 3. Grupo de Modo de Operación
+        group_modo = QGroupBox("2. Modo de Operación")
+        layout_modo = QHBoxLayout(group_modo)
+
         self.boton_aseguradoras = QPushButton("Aseguradoras")
         self.boton_aseguradoras.setCheckable(True)
         self.boton_aseguradoras.setChecked(True)
@@ -87,20 +103,21 @@ class WidgetUnirSoportes(QWidget):
 
         self.boton_aseguradoras.clicked.connect(lambda: self.seleccionar_modo("Aseguradoras"))
         self.boton_adres.clicked.connect(lambda: self.seleccionar_modo("ADRES"))
-
-        layout_modo.addWidget(label_modo, 0, 0)
-        layout_modo.addWidget(self.boton_aseguradoras, 0, 1)
-        layout_modo.addWidget(self.boton_adres, 0, 2)
-        layout_principal.addWidget(frame_modo)
-
-        # Botón de proceso
+        
+        # Los botones se expandirán para llenar el espacio
+        layout_modo.addWidget(self.boton_aseguradoras)
+        layout_modo.addWidget(self.boton_adres)
+        layout_principal.addWidget(group_modo)
+        
+        # 4. Botón de Proceso
         self.boton_procesar = QPushButton("Iniciar Proceso de Unión")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
-
-        # Frame de progreso
-        frame_progreso = QFrame()
+        
+        # 5. Grupo de Progreso
+        frame_progreso = QGroupBox("3. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -111,21 +128,26 @@ class WidgetUnirSoportes(QWidget):
 
         layout_principal.addStretch()
 
+    def seleccionar_carpeta(self):
+        ruta = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta raíz de la Cuenta de Cobro")
+        if ruta:
+            self.ruta_seleccionada = ruta
+            self.entry_carpeta.setText(self.ruta_seleccionada)
+
     def seleccionar_modo(self, modo):
         self.modo_procesamiento = modo
         if modo == "Aseguradoras":
             self.boton_aseguradoras.setChecked(True)
             self.boton_adres.setChecked(False)
-        else:
-            self.boton_aseguradoras.setChecked(False)
+        else: # ADRES
             self.boton_adres.setChecked(True)
+            self.boton_aseguradoras.setChecked(False)
 
     def iniciar_procesamiento(self):
         if self.worker_thread and self.worker_thread.isRunning():
             QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
             return
-        ruta_seleccionada = self.selector_carpeta.path()
-        if not ruta_seleccionada:
+        if not self.ruta_seleccionada:
             QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta primero.")
             return
 
@@ -134,7 +156,7 @@ class WidgetUnirSoportes(QWidget):
         self.barra_progreso.setValue(0)
 
         self.worker_thread = QThread()
-        self.worker = WorkerUnirSoportes(ruta_seleccionada, self.modo_procesamiento)
+        self.worker = WorkerUnirSoportes(self.ruta_seleccionada, self.modo_procesamiento)
         self.worker.moveToThread(self.worker_thread)
 
         self.worker.progreso_actualizado.connect(self.actualizar_progreso)

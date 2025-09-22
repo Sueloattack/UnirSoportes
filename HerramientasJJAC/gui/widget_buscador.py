@@ -1,10 +1,10 @@
 # gui/widget_buscador.py
 import sys
 import re
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, 
                                QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
-                               QGridLayout, QTextEdit)
-from PySide6.QtCore import QThread
+                               QGridLayout, QTextEdit, QHBoxLayout)
+from PySide6.QtCore import QThread, Qt
 from logica.logica_buscador import WorkerBuscador
 
 class ResultadosBuscadorDialog(QDialog):
@@ -65,46 +65,60 @@ class WidgetBuscador(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        # Codigos
-        frame_codigos = QFrame()
-        frame_codigos.setFrameShape(QFrame.StyledPanel)
-        layout_codigos = QVBoxLayout(frame_codigos)
-        label_codigos = QLabel("Pega la lista de códigos a buscar:")
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Buscador y recopilador de carpetas ratificadas ADRES")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
+
+        # 2. Grupo para pegar la lista de códigos
+        group_codigos = QGroupBox("1. Códigos a Buscar")
+        layout_codigos = QVBoxLayout(group_codigos)
+        
         self.text_codigos = QTextEdit()
-        layout_codigos.addWidget(label_codigos)
+        self.text_codigos.setPlaceholderText("Pega aquí la lista de códigos de factura (uno por línea y solo números)...\n336304\n336519\n...")
         layout_codigos.addWidget(self.text_codigos)
-        layout_principal.addWidget(frame_codigos)
+        layout_principal.addWidget(group_codigos)
 
-        # Carpetas
-        frame_carpetas = QFrame()
-        frame_carpetas.setFrameShape(QFrame.StyledPanel)
-        layout_carpetas = QGridLayout(frame_carpetas)
-        label_busqueda = QLabel("Ruta de búsqueda:")
+        # 3. Grupo para la selección de rutas
+        group_carpetas = QGroupBox("2. Rutas de Trabajo")
+        layout_carpetas = QVBoxLayout(group_carpetas)
+        layout_carpetas.setSpacing(10)
+
+        selector_busqueda_layout = QHBoxLayout()
         self.entry_busqueda = QLineEdit()
+        self.entry_busqueda.setPlaceholderText("Seleccione la carpeta de búsqueda...")
         self.entry_busqueda.setReadOnly(True)
         boton_busqueda = QPushButton("Seleccionar...")
         boton_busqueda.clicked.connect(self.seleccionar_carpeta_busqueda)
-        label_destino = QLabel("Ruta de destino:")
+        selector_busqueda_layout.addWidget(self.entry_busqueda)
+        selector_busqueda_layout.addWidget(boton_busqueda)
+
+        selector_destino_layout = QHBoxLayout()
         self.entry_destino = QLineEdit()
+        self.entry_destino.setPlaceholderText("Selecciona la carpeta de destino...")
         self.entry_destino.setReadOnly(True)
         boton_destino = QPushButton("Seleccionar...")
         boton_destino.clicked.connect(self.seleccionar_carpeta_destino)
-        layout_carpetas.addWidget(label_busqueda, 0, 0)
-        layout_carpetas.addWidget(self.entry_busqueda, 0, 1)
-        layout_carpetas.addWidget(boton_busqueda, 0, 2)
-        layout_carpetas.addWidget(label_destino, 1, 0)
-        layout_carpetas.addWidget(self.entry_destino, 1, 1)
-        layout_carpetas.addWidget(boton_destino, 1, 2)
-        layout_principal.addWidget(frame_carpetas)
+        selector_destino_layout.addWidget(self.entry_destino)
+        selector_destino_layout.addWidget(boton_destino)
 
-        self.boton_procesar = QPushButton("Iniciar Búsqueda")
+        layout_carpetas.addLayout(selector_busqueda_layout)
+        layout_carpetas.addLayout(selector_destino_layout)
+        layout_principal.addWidget(group_carpetas)
+        
+        # 4. Botón de Acción Principal
+        self.boton_procesar = QPushButton("Iniciar Búsqueda y Copia")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
 
-        # Progreso
-        frame_progreso = QFrame()
+        # 5. Grupo de Progreso
+        frame_progreso = QGroupBox("3. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -130,13 +144,13 @@ class WidgetBuscador(QWidget):
             QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
             return
         
-        codigos_texto = self.text_codigos.toPlainText()
-        codigos = set(re.findall(r'\d+', codigos_texto))
+        codigos_texto = self.text_codigos.toPlainText().strip()
+        codigos = set(re.findall(r'\d+', codigos_texto)) if codigos_texto else set()
         carpeta_busqueda = self.entry_busqueda.text()
         carpeta_destino = self.entry_destino.text()
 
         if not codigos or not carpeta_busqueda or not carpeta_destino:
-            QMessageBox.critical(self, "Error", "Por favor, introduce los códigos y selecciona las carpetas.")
+            QMessageBox.critical(self, "Error", "Por favor, introduce los códigos y selecciona ambas carpetas.")
             return
 
         self.boton_procesar.setEnabled(False)
@@ -160,7 +174,7 @@ class WidgetBuscador(QWidget):
     def proceso_finalizado(self, resultados):
         self.label_progreso.setText("Proceso finalizado. Listo para empezar de nuevo.")
         self.boton_procesar.setEnabled(True)
-        self.boton_procesar.setText("Iniciar Búsqueda")
+        self.boton_procesar.setText("Iniciar Búsqueda y Copia")
 
         self.worker_thread.quit()
         self.worker_thread.wait()

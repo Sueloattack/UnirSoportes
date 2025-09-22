@@ -1,9 +1,10 @@
 # gui/widget_auditor_facturas.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, 
                                QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
-                               QGridLayout, QTextEdit)
-from PySide6.QtCore import QThread
+                               QGridLayout, QTextEdit, QHBoxLayout)
+from PySide6.QtCore import QThread, Qt
+
 from logica.logica_auditor_facturas import WorkerAuditorFacturas
 
 class ResultadosAuditorDialog(QDialog):
@@ -74,37 +75,53 @@ class WidgetAuditorFacturas(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        frame_seleccion = QFrame()
-        frame_seleccion.setFrameShape(QFrame.StyledPanel)
-        layout_seleccion = QGridLayout(frame_seleccion)
-        
-        label_pdf = QLabel("Archivo PDF a auditar:")
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Revisor de facturas y carpetas en la cuenta de cobro")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
+
+        # 2. Grupo de Selección de Archivos
+        group_seleccion = QGroupBox("1. Archivos de Entrada")
+        layout_seleccion = QVBoxLayout(group_seleccion)
+        layout_seleccion.setSpacing(10)
+
+        # Selector de archivo PDF
+        selector_pdf_layout = QHBoxLayout()
         self.entry_pdf = QLineEdit()
+        self.entry_pdf.setPlaceholderText("Seleccione el archivo .PDF de la cuenta de cobro a revisar...")
         self.entry_pdf.setReadOnly(True)
         boton_examinar_pdf = QPushButton("Seleccionar...")
         boton_examinar_pdf.clicked.connect(self.seleccionar_pdf)
+        selector_pdf_layout.addWidget(self.entry_pdf)
+        selector_pdf_layout.addWidget(boton_examinar_pdf)
 
-        label_carpetas = QLabel("Carpeta que contiene las facturas:")
+        # Selector de carpeta de facturas
+        selector_carpetas_layout = QHBoxLayout()
         self.entry_carpetas = QLineEdit()
+        self.entry_carpetas.setPlaceholderText("Seleccione la carpeta que contiene las subcarpetas con las facturas...")
         self.entry_carpetas.setReadOnly(True)
         boton_examinar_carpetas = QPushButton("Seleccionar...")
         boton_examinar_carpetas.clicked.connect(self.seleccionar_carpetas)
+        selector_carpetas_layout.addWidget(self.entry_carpetas)
+        selector_carpetas_layout.addWidget(boton_examinar_carpetas)
 
-        layout_seleccion.addWidget(label_pdf, 0, 0)
-        layout_seleccion.addWidget(self.entry_pdf, 0, 1)
-        layout_seleccion.addWidget(boton_examinar_pdf, 0, 2)
-        layout_seleccion.addWidget(label_carpetas, 1, 0)
-        layout_seleccion.addWidget(self.entry_carpetas, 1, 1)
-        layout_seleccion.addWidget(boton_examinar_carpetas, 1, 2)
-        layout_principal.addWidget(frame_seleccion)
+        layout_seleccion.addLayout(selector_pdf_layout)
+        layout_seleccion.addLayout(selector_carpetas_layout)
+        layout_principal.addWidget(group_seleccion)
 
+        # 3. Botón de Acción Principal
         self.boton_procesar = QPushButton("Iniciar Auditoría")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
 
-        frame_progreso = QFrame()
+        # 4. Grupo de Progreso
+        frame_progreso = QGroupBox("2. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -116,21 +133,25 @@ class WidgetAuditorFacturas(QWidget):
         layout_principal.addStretch()
 
     def seleccionar_pdf(self):
+        # Usamos QFileDialog.getOpenFileName para seleccionar un solo archivo
         ruta, _ = QFileDialog.getOpenFileName(self, "Selecciona el archivo PDF", "", "PDF Files (*.pdf)")
         if ruta:
             self.pdf_path = ruta
             self.entry_pdf.setText(self.pdf_path)
 
     def seleccionar_carpetas(self):
+        # Usamos QFileDialog.getExistingDirectory para seleccionar una carpeta
         ruta = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta de facturas")
         if ruta:
             self.folders_path = ruta
             self.entry_carpetas.setText(self.folders_path)
 
     def iniciar_procesamiento(self):
+        # (El resto del código de la clase permanece igual, es funcional y robusto)
         if self.worker_thread and self.worker_thread.isRunning():
             QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
             return
+        # Usamos self.pdf_path y self.folders_path directamente, ya que se actualizan
         if not self.pdf_path or not self.folders_path:
             QMessageBox.critical(self, "Error", "Por favor, selecciona el archivo PDF y la carpeta de facturas.")
             return

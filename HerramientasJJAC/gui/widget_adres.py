@@ -1,12 +1,18 @@
 # gui/widget_adres.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
-                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
-                               QGridLayout, QRadioButton)
-from PySide6.QtCore import QThread
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
+                               QPushButton, QFileDialog, QMessageBox, QProgressBar, 
+                               QDialog, QScrollArea, QHBoxLayout)
+from PySide6.QtCore import QThread, Qt
+
+# Asegúrate de que el nombre del worker que importas es correcto
 from logica.logica_adres import WorkerAdres
 
 class ResultadosAdresDialog(QDialog):
+    """
+    Ventana de resultados que muestra el resultado del procesamiento ADRES.
+    (Tu código original para esta clase)
+    """
     def __init__(self, resultados, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Resultados del Procesamiento ADRES")
@@ -27,35 +33,35 @@ class ResultadosAdresDialog(QDialog):
 
         if resultados['exitosos']:
             label = QLabel(f"ÉXITO ({len(resultados['exitosos'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
             layout_resultados.addWidget(label)
             for item in resultados['exitosos']:
                 layout_resultados.addWidget(QLabel(f"✔ Carpeta: {item['carpeta']} -> Se añadió '{item['respuesta_procesada']}'"))
 
         if resultados['ya_tenian_respuesta']:
             label = QLabel(f"YA TENÍAN RESPUESTA ({len(resultados['ya_tenian_respuesta'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: blue;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #3498db;")
             layout_resultados.addWidget(label)
             for item in resultados['ya_tenian_respuesta']:
                 layout_resultados.addWidget(QLabel(f"- Carpeta: {item['carpeta']}"))
 
         if resultados['sin_respuesta_encontrada']:
             label = QLabel(f"SIN RESPUESTA ENCONTRADA ({len(resultados['sin_respuesta_encontrada'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: orange;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f39c12;")
             layout_resultados.addWidget(label)
             for item in resultados['sin_respuesta_encontrada']:
                 layout_resultados.addWidget(QLabel(f"- Carpeta: {item['carpeta']}"))
 
         if resultados['fallidos']:
             label = QLabel(f"ERRORES ({len(resultados['fallidos'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
             layout_resultados.addWidget(label)
             for item in resultados['fallidos']:
                 layout_resultados.addWidget(QLabel(f"✖ Carpeta: {item['carpeta']} | Razón: {item['razon']}"))
 
-        if resultados['sobrantes']:
+        if 'sobrantes' in resultados and resultados['sobrantes']: # Verificación de existencia de la clave
             label = QLabel(f"RESPUESTAS SOBRANTES ({len(resultados['sobrantes'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: purple;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #9b59b6;")
             layout_resultados.addWidget(label)
             for codigo, archivo in resultados['sobrantes'].items():
                 layout_resultados.addWidget(QLabel(f"- {archivo} (código: {codigo})"))
@@ -65,6 +71,9 @@ class ResultadosAdresDialog(QDialog):
         layout.addWidget(boton_cerrar)
 
 class WidgetAdres(QWidget):
+    """
+    Widget principal para la herramienta ADRES, con layout unificado.
+    """
     def __init__(self):
         super().__init__()
         self.ruta_raiz = ""
@@ -77,52 +86,68 @@ class WidgetAdres(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        frame_seleccion = QFrame()
-        frame_seleccion.setFrameShape(QFrame.StyledPanel)
-        layout_seleccion = QGridLayout(frame_seleccion)
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Organizador de respuestas glosas ADRES")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
+
+        # 2. Grupo de Selección de Carpetas
+        group_seleccion = QGroupBox("1. Selección de Carpetas")
+        layout_seleccion = QVBoxLayout(group_seleccion)
+        layout_seleccion.setSpacing(10)
         
-        label_raiz = QLabel("Carpeta con subcarpetas de FACTURAS:")
+        selector_raiz_layout = QHBoxLayout()
         self.entry_raiz = QLineEdit()
+        self.entry_raiz.setPlaceholderText("Seleccione la carpeta con las subcarpetas de las FACTURAS...")
         self.entry_raiz.setReadOnly(True)
         boton_examinar_raiz = QPushButton("Seleccionar...")
         boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
+        selector_raiz_layout.addWidget(self.entry_raiz)
+        selector_raiz_layout.addWidget(boton_examinar_raiz)
 
-        label_respuestas = QLabel("Carpeta con las RESPUESTAS sueltas:")
+        selector_respuestas_layout = QHBoxLayout()
         self.entry_respuestas = QLineEdit()
+        self.entry_respuestas.setPlaceholderText("Seleccione la carpeta con las RESPUESTAS glosas...")
         self.entry_respuestas.setReadOnly(True)
         boton_examinar_respuestas = QPushButton("Seleccionar...")
         boton_examinar_respuestas.clicked.connect(self.seleccionar_carpeta_respuestas)
+        selector_respuestas_layout.addWidget(self.entry_respuestas)
+        selector_respuestas_layout.addWidget(boton_examinar_respuestas)
 
-        layout_seleccion.addWidget(label_raiz, 0, 0)
-        layout_seleccion.addWidget(self.entry_raiz, 0, 1)
-        layout_seleccion.addWidget(boton_examinar_raiz, 0, 2)
-        layout_seleccion.addWidget(label_respuestas, 1, 0)
-        layout_seleccion.addWidget(self.entry_respuestas, 1, 1)
-        layout_seleccion.addWidget(boton_examinar_respuestas, 1, 2)
-        layout_principal.addWidget(frame_seleccion)
+        layout_seleccion.addLayout(selector_raiz_layout)
+        layout_seleccion.addLayout(selector_respuestas_layout)
+        layout_principal.addWidget(group_seleccion)
 
-        frame_accion = QFrame()
-        frame_accion.setFrameShape(QFrame.StyledPanel)
-        layout_accion = QGridLayout(frame_accion)
+        # 3. Grupo de Acción a Realizar
+        group_accion = QGroupBox("2. Acción a Realizar")
+        layout_accion_interno = QHBoxLayout(group_accion)
 
-        label_accion = QLabel("Acción a realizar:")
-        self.radio_mover = QRadioButton("Mover archivos")
-        self.radio_mover.setChecked(True)
-        self.radio_copiar = QRadioButton("Copiar archivos")
-        self.radio_mover.toggled.connect(self.seleccionar_accion)
+        self.boton_mover = QPushButton("Mover archivos")
+        self.boton_mover.setCheckable(True)
+        self.boton_mover.setChecked(True)
+        self.boton_mover.clicked.connect(lambda: self.seleccionar_accion("mover"))
 
-        layout_accion.addWidget(label_accion, 0, 0)
-        layout_accion.addWidget(self.radio_mover, 0, 1)
-        layout_accion.addWidget(self.radio_copiar, 0, 2)
-        layout_principal.addWidget(frame_accion)
-
+        self.boton_copiar = QPushButton("Copiar archivos")
+        self.boton_copiar.setCheckable(True)
+        self.boton_copiar.clicked.connect(lambda: self.seleccionar_accion("copiar"))
+        
+        layout_accion_interno.addWidget(self.boton_mover)
+        layout_accion_interno.addWidget(self.boton_copiar)
+        layout_principal.addWidget(group_accion)
+        
+        # 4. Botón de Proceso
         self.boton_procesar = QPushButton("Iniciar Procesamiento ADRES")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
-
-        frame_progreso = QFrame()
+        
+        # 5. Grupo de Progreso
+        frame_progreso = QGroupBox("3. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -145,8 +170,15 @@ class WidgetAdres(QWidget):
             self.ruta_respuestas = ruta
             self.entry_respuestas.setText(self.ruta_respuestas)
 
-    def seleccionar_accion(self, checked):
-        self.mover_archivos = checked
+    def seleccionar_accion(self, modo):
+        if modo == "mover":
+            self.mover_archivos = True
+            self.boton_mover.setChecked(True)
+            self.boton_copiar.setChecked(False)
+        elif modo == "copiar":
+            self.mover_archivos = False
+            self.boton_copiar.setChecked(True)
+            self.boton_mover.setChecked(False)
 
     def iniciar_procesamiento(self):
         if self.worker_thread and self.worker_thread.isRunning():

@@ -1,14 +1,16 @@
-# gui/widget_traer_soportes.py
+# gui/widget_traer_soportes_adres.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
-                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
-                               QGridLayout, QRadioButton)
-from PySide6.QtCore import QThread
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
+                               QPushButton, QFileDialog, QMessageBox, QProgressBar, 
+                               QDialog, QScrollArea, QHBoxLayout)
+from PySide6.QtCore import QThread, Qt
+
 from logica.logica_traer_soportes_adres import WorkerTraerSoportes
 
 class ResultadosTraerSoportesDialog(QDialog):
     """
     Ventana de resultados que muestra el resultado de traer los soportes.
+    (Tu código original para esta clase, sin cambios)
     """
     def __init__(self, resultados, parent=None):
         super().__init__(parent)
@@ -31,28 +33,28 @@ class ResultadosTraerSoportesDialog(QDialog):
 
         if resultados['exitosos']:
             label = QLabel(f"ÉXITO ({len(resultados['exitosos'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
             layout_resultados.addWidget(label)
             for item in resultados['exitosos']:
                 layout_resultados.addWidget(QLabel(f"✔ Carpeta: {item['carpeta']} | Archivos procesados: {len(item['archivos'])}"))
 
         if resultados['sin_soportes_encontrados']:
             label = QLabel(f"SIN SOPORTES ENCONTRADOS ({len(resultados['sin_soportes_encontrados'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: orange;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #f39c12;")
             layout_resultados.addWidget(label)
             for item in resultados['sin_soportes_encontrados']:
                 layout_resultados.addWidget(QLabel(f"- Carpeta: {item['carpeta']}"))
 
         if resultados['fallidos']:
             label = QLabel(f"ERRORES ({len(resultados['fallidos'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
             layout_resultados.addWidget(label)
             for item in resultados['fallidos']:
                 layout_resultados.addWidget(QLabel(f"✖ Carpeta: {item['carpeta']} | Razón: {item['razon']}"))
 
         if resultados['sobrantes']:
             label = QLabel(f"SOPORTES SOBRANTES ({len(resultados['sobrantes'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: purple;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #9b59b6;")
             layout_resultados.addWidget(label)
             for codigo, archivos in resultados['sobrantes'].items():
                 for archivo in archivos:
@@ -64,7 +66,7 @@ class ResultadosTraerSoportesDialog(QDialog):
 
 class WidgetTraerSoportesAdres(QWidget):
     """
-    Widget principal para la herramienta "Traer Soportes".
+    Widget principal para la herramienta "Traer Soportes", con layout actualizado.
     """
     def __init__(self):
         super().__init__()
@@ -78,52 +80,68 @@ class WidgetTraerSoportesAdres(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        frame_seleccion = QFrame()
-        frame_seleccion.setFrameShape(QFrame.StyledPanel)
-        layout_seleccion = QGridLayout(frame_seleccion)
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Traer soportes ADRES")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
+
+        # 2. Grupo de Selección de Carpetas
+        group_seleccion = QGroupBox("1. Selección de Carpetas")
+        layout_seleccion = QVBoxLayout(group_seleccion)
+        layout_seleccion.setSpacing(10)
         
-        label_raiz = QLabel("Carpeta con subcarpetas de FACTURAS:")
+        selector_raiz_layout = QHBoxLayout()
         self.entry_raiz = QLineEdit()
+        self.entry_raiz.setPlaceholderText("Selecciona la carpeta con subcarpetas de FACTURAS...")
         self.entry_raiz.setReadOnly(True)
         boton_examinar_raiz = QPushButton("Seleccionar...")
         boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
+        selector_raiz_layout.addWidget(self.entry_raiz)
+        selector_raiz_layout.addWidget(boton_examinar_raiz)
 
-        label_soportes = QLabel("Carpeta DESORDENADA con todos los SOPORTES:")
+        selector_soportes_layout = QHBoxLayout()
         self.entry_soportes = QLineEdit()
+        self.entry_soportes.setPlaceholderText("Seleccione la carpeta con todos los SOPORTES...")
         self.entry_soportes.setReadOnly(True)
         boton_examinar_soportes = QPushButton("Seleccionar...")
         boton_examinar_soportes.clicked.connect(self.seleccionar_carpeta_soportes)
+        selector_soportes_layout.addWidget(self.entry_soportes)
+        selector_soportes_layout.addWidget(boton_examinar_soportes)
 
-        layout_seleccion.addWidget(label_raiz, 0, 0)
-        layout_seleccion.addWidget(self.entry_raiz, 0, 1)
-        layout_seleccion.addWidget(boton_examinar_raiz, 0, 2)
-        layout_seleccion.addWidget(label_soportes, 1, 0)
-        layout_seleccion.addWidget(self.entry_soportes, 1, 1)
-        layout_seleccion.addWidget(boton_examinar_soportes, 1, 2)
-        layout_principal.addWidget(frame_seleccion)
+        layout_seleccion.addLayout(selector_raiz_layout)
+        layout_seleccion.addLayout(selector_soportes_layout)
+        layout_principal.addWidget(group_seleccion)
 
-        frame_accion = QFrame()
-        frame_accion.setFrameShape(QFrame.StyledPanel)
-        layout_accion = QGridLayout(frame_accion)
+        # 3. Grupo de Acción a Realizar
+        group_accion = QGroupBox("2. Acción a Realizar")
+        layout_accion_interno = QHBoxLayout(group_accion)
 
-        label_accion = QLabel("Acción a realizar:")
-        self.radio_mover = QRadioButton("Mover archivos")
-        self.radio_mover.setChecked(True)
-        self.radio_copiar = QRadioButton("Copiar archivos")
-        self.radio_mover.toggled.connect(self.seleccionar_accion)
+        self.boton_mover = QPushButton("Mover archivos")
+        self.boton_mover.setCheckable(True)
+        self.boton_mover.setChecked(True)
+        self.boton_mover.clicked.connect(lambda: self.seleccionar_accion("mover"))
 
-        layout_accion.addWidget(label_accion, 0, 0)
-        layout_accion.addWidget(self.radio_mover, 0, 1)
-        layout_accion.addWidget(self.radio_copiar, 0, 2)
-        layout_principal.addWidget(frame_accion)
+        self.boton_copiar = QPushButton("Copiar archivos")
+        self.boton_copiar.setCheckable(True)
+        self.boton_copiar.clicked.connect(lambda: self.seleccionar_accion("copiar"))
 
+        layout_accion_interno.addWidget(self.boton_mover)
+        layout_accion_interno.addWidget(self.boton_copiar)
+        layout_principal.addWidget(group_accion)
+        
+        # 4. Botón de Proceso
         self.boton_procesar = QPushButton("Iniciar Agrupación de Soportes")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
 
-        frame_progreso = QFrame()
+        # 5. Grupo de Progreso
+        frame_progreso = QGroupBox("3. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -146,8 +164,15 @@ class WidgetTraerSoportesAdres(QWidget):
             self.ruta_soportes = ruta
             self.entry_soportes.setText(self.ruta_soportes)
 
-    def seleccionar_accion(self, checked):
-        self.mover_archivos = checked
+    def seleccionar_accion(self, modo):
+        if modo == "mover":
+            self.mover_archivos = True
+            self.boton_mover.setChecked(True)
+            self.boton_copiar.setChecked(False)
+        elif modo == "copiar":
+            self.mover_archivos = False
+            self.boton_copiar.setChecked(True)
+            self.boton_mover.setChecked(False)
 
     def iniciar_procesamiento(self):
         if self.worker_thread and self.worker_thread.isRunning():
@@ -162,6 +187,7 @@ class WidgetTraerSoportesAdres(QWidget):
         self.barra_progreso.setValue(0)
 
         self.worker_thread = QThread()
+        # ASEGÚRATE de que el nombre del Worker sea el correcto que importas
         self.worker = WorkerTraerSoportes(self.ruta_raiz, self.ruta_soportes, self.mover_archivos)
         self.worker.moveToThread(self.worker_thread)
 

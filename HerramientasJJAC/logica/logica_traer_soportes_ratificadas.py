@@ -1,94 +1,106 @@
+# logica/logica_traer_soportes_ratificadas.py
 import os
 import shutil
-from datetime import datetime
+import re
+from PySide6.QtCore import QObject, Signal
 
-class LogicaTraerSoportesRatificadas:
-    def __init__(self, log_callback=None):
-        self.log_callback = log_callback
+# --- COLORES OPTIMIZADOS PARA DARK MODE ---
+COLOR_INFO = "#5DADE2"      # Azul claro
+COLOR_SUCCESS = "#2ECC71"   # Verde brillante
+COLOR_WARNING = "#F39C12"   # Naranja
+COLOR_ERROR = "#E74C3C"      # Rojo claro
+COLOR_DEFAULT = "#ECF0F1"   # Blanco roto
 
-    def _log(self, message):
-        if self.log_callback:
-            self.log_callback(message)
-        else:
-            print(message)
+class WorkerTraerSoportesRatificadas(QObject):
+    log_generado = Signal(str)
+    proceso_finalizado = Signal()
 
-    def buscar_y_copiar_soportes(
-        self, invoice_numbers: list[str], search_dir: str, dest_dir: str
-    ):
-        if not os.path.isdir(search_dir):
-            self._log(f"<p style='color:red;'>Error: El directorio de búsqueda no existe: {search_dir}</p>")
-            return
-        if not os.path.isdir(dest_dir):
-            self._log(f"<p style='color:red;'>Error: El directorio de destino no existe: {dest_dir}</p>")
-            return
+    def __init__(self, numeros_factura: list[str], dir_busqueda: str, dir_destino: str):
+        super().__init__()
+        self.numeros_factura = numeros_factura
+        self.dir_busqueda = dir_busqueda
+        self.dir_destino = dir_destino
+        self.esta_cancelado = False
 
-        self._log("<p style='color:green;'>Iniciando búsqueda y copia de soportes...</p>")
-        self._log(f"Números de factura a buscar: {', '.join(invoice_numbers)}")
-        self._log(f"Directorio de búsqueda: {search_dir}")
-        self._log(f"Directorio de destino: {dest_dir}")
+    def _log(self, mensaje: str, color: str = COLOR_DEFAULT):
+        self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
-        for invoice_number in invoice_numbers:
-            self._log(f"<p style='color:blue;'>Buscando soportes para factura: {invoice_number}</p>")
-            found_folders = self._find_invoice_folders(invoice_number, search_dir)
+    def ejecutar(self):
+        self._log("<b>Iniciando búsqueda y copia de soportes...</b>", COLOR_INFO)
+        self._log(f"Directorio de Búsqueda: {self.dir_busqueda}")
+        self._log(f"Directorio de Destino: {self.dir_destino}")
 
-            if not found_folders:
-                self._log(f"<p style='color:orange;'>No se encontraron carpetas para la factura {invoice_number}.</p>")
-                continue
+        try:
+            for numero in self.numeros_factura:
+                if self.esta_cancelado: break
+                
+                self._log(f"<br><b>Buscando soportes para factura: {numero}</b>", COLOR_INFO)
+                
+                carpetas_origen = self._encontrar_carpetas_origen(numero)
+                if not carpetas_origen:
+                    self._log(f"-> No se encontraron carpetas de origen para '{numero}'.", COLOR_WARNING)
+                    continue
+                
+                if len(carpetas_origen) > 1:
+                    carpetas_origen.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+                    self._log(f"-> Se encontraron {len(carpetas_origen)} carpetas. Seleccionando la más reciente:")
+                
+                carpeta_origen_final = carpetas_origen[0]
+                self._log(f"-> Carpeta de origen encontrada: {carpeta_origen_final}")
+                
+                nombre_carpeta_origen = os.path.basename(carpeta_origen_final)
+                ruta_destino_subcarpeta = os.path.join(self.dir_destino, nombre_carpeta_origen)
 
-            # Seleccionar la última carpeta encontrada (por fecha de modificación)
-            found_folders.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-            target_folder = found_folders[0]
-            self._log(f"<p>Carpeta encontrada (última modificación): {target_folder}</p>")
+                if os.path.isdir(ruta_destino_subcarpeta):
+                    self._log(f"-> Carpeta de destino encontrada: {ruta_destino_subcarpeta}")
+                    self._copiar_contenido(carpeta_origen_final, ruta_destino_subcarpeta, numero)
+                else:
+                    self._log(f"-> No se encontró la subcarpeta de destino '{nombre_carpeta_origen}'.", COLOR_WARNING)
 
-            try:
-                self._copy_folder_contents(target_folder, dest_dir, invoice_number)
-                self._log(f"<p style='color:green;'>Contenido de la factura {invoice_number} copiado exitosamente.</p>")
-            except Exception as e:
-                self._log(f"<p style='color:red;'>Error al copiar contenido para la factura {invoice_number}: {e}</p>")
+        except Exception as e:
+            self._log(f"<b>ERROR CRÍTICO:</b> {e}", COLOR_ERROR)
+        
+        self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
+        self.proceso_finalizado.emit()
+        
+    def _encontrar_carpetas_origen(self, numero_factura: str) -> list:
+        rutas_encontradas = set()
+        numero_factura_limpio = numero_factura.strip()
 
-        self._log("<p style='color:green;'>Operación completada.</p>")
+        for nombre_item in os.listdir(self.dir_busqueda):
+            ruta_completa = os.path.join(self.dir_busqueda, nombre_item)
+            if os.path.isdir(ruta_completa) and numero_factura_limpio in nombre_item:
+                rutas_encontradas.add(ruta_completa)
 
-    def _find_invoice_folders(self, invoice_number: str, root_dir: str) -> list[str]:
-        found_paths = []
-        for dirpath, dirnames, filenames in os.walk(root_dir):
-            # Buscar carpetas que contengan el número de factura
-            # Y que estén en una estructura que sugiera una 'carta glosa' (e.g., subcarpeta de una raíz)
-            # La lógica de 'cartas glosa' es un poco ambigua, asumo que significa que la carpeta de la factura
-            # está dentro de una carpeta que a su vez está dentro de la carpeta raíz de búsqueda.
-            # O que la carpeta de la factura contiene un archivo 'carta glosa' (no implementado aquí, solo la estructura)
-
-            # Simplificación: buscar cualquier carpeta cuyo nombre contenga el número de factura
-            # y que no sea la carpeta raíz de búsqueda directamente.
+        for dirpath, dirnames, _ in os.walk(self.dir_busqueda):
             for dirname in dirnames:
-                if invoice_number in dirname and dirpath != root_dir:
-                    full_path = os.path.join(dirpath, dirname)
-                    # Opcional: verificar si contiene 'carta glosa' si es un archivo específico
-                    # if 'carta glosa' in [f.lower() for f in os.listdir(full_path)]:
-                    found_paths.append(full_path)
-        return found_paths
+                if numero_factura_limpio in dirname:
+                    rutas_encontradas.add(os.path.join(dirpath, dirname))
 
-    def _copy_folder_contents(self, source_folder: str, destination_root: str, invoice_number: str):
-        # Crear una carpeta de destino específica para esta factura dentro del destino raíz
-        # para evitar mezclar contenidos si los nombres de archivo son idénticos entre facturas.
-        # El usuario quiere que se pegue en 'mi carpeta determinada', asumo que es la carpeta raíz de destino
-        # y que los contenidos se pegan directamente allí, pero con el sufijo '-copia'.
-        # Si se quiere una subcarpeta por factura, se debería crear aquí.
+        return list(rutas_encontradas)
+        
+    def _copiar_contenido(self, ruta_origen: str, ruta_destino: str, numero_factura: str):
+        archivos_copiados = 0
+        try:
+            for nombre_item in os.listdir(ruta_origen):
+                ruta_completa_origen = os.path.join(ruta_origen, nombre_item)
+                if os.path.isfile(ruta_completa_origen):
+                    nombre_base, extension = os.path.splitext(nombre_item)
+                    nuevo_nombre = f"{nombre_base}-copia{extension}"
+                    ruta_completa_destino = os.path.join(ruta_destino, nuevo_nombre)
+                    
+                    if not os.path.exists(ruta_completa_destino):
+                        shutil.copy2(ruta_completa_origen, ruta_completa_destino)
+                        archivos_copiados += 1
+                    else:
+                        self._log(f"-> Omitido (ya existe): {nuevo_nombre}", "gray")
 
-        # Para pegar directamente en destination_root con -copia
-        for item_name in os.listdir(source_folder):
-            source_item_path = os.path.join(source_folder, item_name)
-            
-            # Construir el nuevo nombre con '-copia'
-            name, ext = os.path.splitext(item_name)
-            new_item_name = f"{name}-copia{ext}"
-            destination_item_path = os.path.join(destination_root, new_item_name)
+            if archivos_copiados > 0:
+                self._log(f"-> Se copiaron {archivos_copiados} archivos a la carpeta de destino.", COLOR_SUCCESS)
+            else:
+                 self._log("-> No se copiaron nuevos archivos (o ya existían).")
+        except Exception as e:
+            self._log(f"-> ❌ ERROR al copiar contenido para la factura '{numero_factura}': {e}", COLOR_ERROR)
 
-            if os.path.isfile(source_item_path):
-                shutil.copy2(source_item_path, destination_item_path)
-            elif os.path.isdir(source_item_path):
-                # Si es un directorio, copiar recursivamente con el sufijo
-                # Esto es más complejo si se quiere que cada archivo dentro del subdirectorio también tenga '-copia'
-                # Por simplicidad, copiaré el directorio tal cual con el nuevo nombre.
-                # Si el usuario quiere '-copia' en cada archivo dentro de los subdirectorios, la lógica debe ser más profunda.
-                shutil.copytree(source_item_path, destination_item_path, dirs_exist_ok=True)
-
+    def cancelar(self):
+        self.esta_cancelado = True

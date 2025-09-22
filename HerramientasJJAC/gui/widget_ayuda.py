@@ -16,6 +16,7 @@ class WidgetAyuda(QWidget):
         layout.addWidget(scroll_area)
 
         container = QWidget()
+        container.setObjectName("TabContentWidget")
         scroll_area.setWidget(container)
         
         layout_ayuda = QVBoxLayout(container)

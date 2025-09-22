@@ -13,49 +13,64 @@ class WorkerUnirSoportes(QObject):
     Clase que ejecuta la lógica de negocio en un hilo de trabajo para no bloquear la GUI.
     Emite señales para comunicar el progreso y los resultados.
     """
-    progreso_actualizado = Signal(str, float)
-    proceso_finalizado = Signal(dict)
+    progreso_actualizado = Signal(str)  # Ahora emite HTML
+    proceso_finalizado = Signal(str)  # Ahora emite HTML
+    barra_progreso_actualizada = Signal(float)
 
     def __init__(self, ruta_carpeta_raiz, modo):
         super().__init__()
         self.ruta_carpeta_raiz = ruta_carpeta_raiz
         self.modo = modo
         self.esta_cancelado = False
+        # Paleta de colores para logs HTML
+        self.color_texto = "#ecf0f1"
+        self.color_exito = "#2ecc71"
+        self.color_error = "#e74c3c"
+        self.color_advertencia = "#f39c12"
+        self.color_info = "#3498db"
 
     def ejecutar(self):
         """
         Función principal que orquesta el proceso. Será llamada por el hilo.
         """
-        resultados = {"exitosos": [], "fallidos": []}
+        resultados_html = []
         
         subcarpetas = gestor_archivos.listar_subdirectorios(self.ruta_carpeta_raiz)
         subcarpetas.sort(key=lambda path: self._extraer_numero_de_cadena(os.path.basename(path)))
 
         if not subcarpetas:
-            resultados["fallidos"].append({"carpeta": "Raíz", "razon": "No se encontraron subcarpetas para procesar."})
-            self.proceso_finalizado.emit(resultados)
+            mensaje = f'<p style="color: {self.color_error};"><b>Error:</b> No se encontraron subcarpetas para procesar en la ruta seleccionada.</p>'
+            self.progreso_actualizado.emit(mensaje)
+            self.proceso_finalizado.emit("".join(resultados_html))
             return
 
         total_carpetas = len(subcarpetas)
         for i, ruta_carpeta in enumerate(subcarpetas):
             if self.esta_cancelado:
+                resultados_html.append(f'<p style="color: {self.color_advertencia};"><b>Proceso cancelado por el usuario.</b></p>')
                 break
             
             nombre_carpeta = os.path.basename(ruta_carpeta)
             porcentaje = (i + 1) / total_carpetas * 100
             
-            self.progreso_actualizado.emit(nombre_carpeta, porcentaje)
+            self.progreso_actualizado.emit(f'<p style="color: {self.color_texto};">Procesando: <b>{nombre_carpeta}</b>...</p>')
+            self.barra_progreso_actualizada.emit(porcentaje)
             
-            try:
-                if self.modo == "ADRES":
-                    self._procesar_carpeta_adres(ruta_carpeta, nombre_carpeta, resultados)
-                else:  # "Aseguradoras"
-                    self._procesar_carpeta_aseguradoras(ruta_carpeta, nombre_carpeta, resultados)
-            except Exception as e:
-                razon = f"Error inesperado en la carpeta: {e}"
-                resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": razon})
+            # El procesamiento de carpetas ahora devuelve un string HTML
+            resultado_html = self._procesar_carpeta(ruta_carpeta, nombre_carpeta)
+            resultados_html.append(resultado_html)
 
-        self.proceso_finalizado.emit(resultados)
+        self.proceso_finalizado.emit("".join(resultados_html))
+
+    def _procesar_carpeta(self, ruta_carpeta, nombre_carpeta):
+        """Refactorizado para procesar una carpeta y devolver el resultado como HTML."""
+        try:
+            if self.modo == "ADRES":
+                return self._procesar_carpeta_adres(ruta_carpeta, nombre_carpeta)
+            else:  # "Aseguradoras"
+                return self._procesar_carpeta_aseguradoras(ruta_carpeta, nombre_carpeta)
+        except Exception as e:
+            return f'<p style="color: {self.color_error};">- {nombre_carpeta}: Error inesperado: {e}</p>'
 
     def cancelar(self):
         self.esta_cancelado = True

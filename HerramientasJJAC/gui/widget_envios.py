@@ -1,12 +1,17 @@
 # gui/widget_envios.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, 
-                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
-                               QGridLayout)
-from PySide6.QtCore import QThread
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
+                               QPushButton, QFileDialog, QMessageBox, QProgressBar, 
+                               QDialog, QScrollArea, QHBoxLayout)
+from PySide6.QtCore import QThread, Qt
+
 from logica.logica_envios import WorkerEnvios
 
 class ResultadosEnviosDialog(QDialog):
+    """
+    Ventana de resultados que muestra el resultado de la reorganización.
+    (Tu código original para esta clase)
+    """
     def __init__(self, resultados, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Resultados de la Reorganización de Sedes")
@@ -27,14 +32,14 @@ class ResultadosEnviosDialog(QDialog):
 
         if resultados['movimientos']:
             label = QLabel(f"MOVIMIENTOS ({len(resultados['movimientos'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;")
             layout_resultados.addWidget(label)
             for item in resultados['movimientos']:
                 layout_resultados.addWidget(QLabel(f"✔ Carpeta: '{item['carpeta']}' (Serie: {item['serie']}) movida de '{item['origen']}' a '{item['destino']}'"))
 
         if resultados['errores']:
             label = QLabel(f"ERRORES ({len(resultados['errores'])})")
-            label.setStyleSheet("font-size: 16px; font-weight: bold; color: red;")
+            label.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
             layout_resultados.addWidget(label)
             for item in resultados['errores']:
                 layout_resultados.addWidget(QLabel(f"✖ Carpeta: '{item['carpeta']}' | Razón: {item['razon']}"))
@@ -42,6 +47,7 @@ class ResultadosEnviosDialog(QDialog):
         boton_cerrar = QPushButton("Cerrar")
         boton_cerrar.clicked.connect(self.accept)
         layout.addWidget(boton_cerrar)
+
 
 class WidgetEnvios(QWidget):
     def __init__(self):
@@ -53,28 +59,38 @@ class WidgetEnvios(QWidget):
 
     def crear_widgets(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
 
-        frame_seleccion = QFrame()
-        frame_seleccion.setFrameShape(QFrame.StyledPanel)
-        layout_seleccion = QGridLayout(frame_seleccion)
+        # 1. Título principal de la pestaña
+        label_titulo = QLabel("Reorganizador de Sedes para Envíos ADRES")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
+
+        # 2. Grupo de Selección de Carpetas
+        group_seleccion = QGroupBox("1. Carpeta de Trabajo")
+        layout_seleccion = QHBoxLayout(group_seleccion)
         
-        label_raiz = QLabel("Carpeta que contiene 'sede 1' y 'sede 2':")
         self.entry_raiz = QLineEdit()
+        self.entry_raiz.setPlaceholderText("Seleccione la carpeta que contiene las subcarpetas 'sede 1' y 'sede 2'...")
         self.entry_raiz.setReadOnly(True)
         boton_examinar_raiz = QPushButton("Seleccionar...")
         boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
 
-        layout_seleccion.addWidget(label_raiz, 0, 0)
-        layout_seleccion.addWidget(self.entry_raiz, 0, 1)
-        layout_seleccion.addWidget(boton_examinar_raiz, 0, 2)
-        layout_principal.addWidget(frame_seleccion)
+        layout_seleccion.addWidget(self.entry_raiz)
+        layout_seleccion.addWidget(boton_examinar_raiz)
+        layout_principal.addWidget(group_seleccion)
 
+        # 3. Botón de Acción Principal
         self.boton_procesar = QPushButton("Iniciar Reorganización de Sedes")
+        self.boton_procesar.setObjectName("BotonPrincipal")
         self.boton_procesar.setFixedHeight(40)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
         layout_principal.addWidget(self.boton_procesar)
 
-        frame_progreso = QFrame()
+        # 4. Grupo de Progreso
+        frame_progreso = QGroupBox("2. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
         self.barra_progreso = QProgressBar()
@@ -86,7 +102,7 @@ class WidgetEnvios(QWidget):
         layout_principal.addStretch()
 
     def seleccionar_carpeta_raiz(self):
-        ruta = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta raíz")
+        ruta = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta raíz de envíos")
         if ruta:
             self.entry_raiz.setText(ruta)
 
