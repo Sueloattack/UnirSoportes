@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon
 
+
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -25,19 +26,21 @@ class VentanaPrincipal(QMainWindow):
         sidebar_layout.setSpacing(10)
         main_layout.addWidget(self.sidebar_container)
         
+        # ---------------- ICONOS ----------------
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        self.align_justify_icon_path = os.path.join(project_root, "align-justify.svg")
+        self.category_icon_right_path = os.path.join(project_root, "chevrons-right.svg")
+        self.category_icon_down_path = os.path.join(project_root, "chevrons-down.svg")
+        self.widget_icon_path = os.path.join(project_root, "chevron-right.svg")
 
+        # Botón toggle sidebar
         self.toggle_button = QPushButton()
         self.toggle_button.setObjectName("ToggleButton")
         self.toggle_button.setFixedSize(QSize(40, 40))
         self.toggle_button.clicked.connect(self.toggle_sidebar)
         sidebar_layout.addWidget(self.toggle_button, 0, Qt.AlignLeft)
 
-        # Ruta al icono chevrons-right.svg
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Sube tres niveles para llegar a HerramientasJJAC
-        self.chevrons_icon_path = os.path.join(project_root, "chevrons-right.svg")
-        self.category_icon_path = os.path.join(project_root, "chevron-right.svg")
-        self.widget_icon_path = os.path.join(project_root, "chevrons-down.svg")
-        
+        # Árbol lateral
         self.sidebar_tree = QTreeWidget()
         self.sidebar_tree.setObjectName("SidebarTree")
         self.sidebar_tree.setIndentation(15)
@@ -48,16 +51,20 @@ class VentanaPrincipal(QMainWindow):
         sidebar_layout.addWidget(self.sidebar_tree)
         self.sidebar_tree.installEventFilter(self)
 
+        # Conectar señales de expandir/colapsar categorías
+        self.sidebar_tree.itemExpanded.connect(self.on_category_expanded)
+        self.sidebar_tree.itemCollapsed.connect(self.on_category_collapsed)
+
+        # Contenido principal
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
         
         self.item_to_widget_map = {} # Mapea id(QTreeWidgetItem) a índice de stacked_widget
         self.full_text_map = {}     # Mapea id(QTreeWidgetItem) a {'name': 'Full Name', 'abbr': 'ABBR'}
 
-        self.poblar_menu() # Llama al nuevo método para llenar el menú
+        self.poblar_menu()
 
         self.sidebar_tree.currentItemChanged.connect(self.on_menu_item_changed)
-        # self.sidebar_tree.itemClicked.connect(self.on_item_clicked_debug) # Nueva conexión para depuración
         self.sidebar_tree.expandAll()
         
         primer_item_seleccionable = self.sidebar_tree.topLevelItem(0).child(0)
@@ -67,18 +74,18 @@ class VentanaPrincipal(QMainWindow):
         self.update_sidebar_state()
 
     def poblar_menu(self):
-        # 1. Categoría Procesamiento y Unión
+        # 1. Categoría Procesamiento
         cat_procesamiento = self._add_category("PROCESAMIENTO")
         self._add_widget(cat_procesamiento, "Unir Soportes", "US", "widgets.unir_soportes", "UnirSoportesWidget")
         self._add_widget(cat_procesamiento, "Procesamiento ADRES", "PA", "widgets.organizador_respuestas_adres", "OrganizadorRespuestasAdresWidget")
 
-        # 2. Categoría Organización de Archivos
+        # 2. Categoría Organización
         cat_organizacion = self._add_category("ORGANIZACIÓN")
         self._add_widget(cat_organizacion, "Organizar PDFs", "ORG", "widgets.organizador_respuestas", "OrganizadorRespuestasWidget")
         self._add_widget(cat_organizacion, "Organizar XMLs", "XML", "widgets.organizador_xml", "OrganizadorXMLWidget")
         self._add_widget(cat_organizacion, "Reorganizar Sedes", "ENV", "widgets.reorganizador_sedes", "ReorganizadorSedesWidget")
 
-        # 3. Categoría Búsqueda y Extracción
+        # 3. Categoría Búsqueda
         cat_busqueda = self._add_category("BÚSQUEDA")
         self._add_widget(cat_busqueda, "Traer Soportes ADRES", "TSA", "widgets.traer_soportes_adres", "TraerSoportesAdresWidget")
         self._add_widget(cat_busqueda, "Buscador Soportes Ratificadas", "BSR", "widgets.buscador_soportes_ratificados", "BuscadorSoportesRatificadosWidget")
@@ -96,14 +103,11 @@ class VentanaPrincipal(QMainWindow):
         category_item = QTreeWidgetItem(self.sidebar_tree, [name.upper()])
         category_item.setFlags(category_item.flags() & ~Qt.ItemIsSelectable)
         category_item.setData(0, Qt.UserRole, "category")
-        category_item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft) # Alineación para categorías
-        if os.path.exists(self.category_icon_path):
-            icon = QIcon(self.category_icon_path)
-            # if icon.isNull():
-                # print(f"DEBUG: Failed to load category icon from {self.category_icon_path}")
-            category_item.setIcon(0, icon)
-            category_item.setSizeHint(0, QSize(32, 32)) # Ajustar tamaño del icono
-        self.full_text_map[id(category_item)] = {"name": name.upper(), "abbr": ""} # Store full name for categories
+        category_item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft)
+        if os.path.exists(self.category_icon_right_path):
+            category_item.setIcon(0, QIcon(self.category_icon_right_path))
+            category_item.setSizeHint(0, QSize(32, 32))
+        self.full_text_map[id(category_item)] = {"name": name.upper(), "abbr": ""}
         return category_item
 
     def _add_widget(self, parent_item: QTreeWidgetItem, name, abbr, module_name, class_name):
@@ -115,13 +119,10 @@ class VentanaPrincipal(QMainWindow):
             
             item = QTreeWidgetItem(parent_item)
             item.setText(0, name)
-            item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft) # Alineación para ítems de widget
+            item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft)
             if os.path.exists(self.widget_icon_path):
-                icon = QIcon(self.widget_icon_path)
-                # if icon.isNull():
-                    # print(f"DEBUG: Failed to load widget icon from {self.widget_icon_path}")
-                item.setIcon(0, icon)
-                item.setSizeHint(0, QSize(32, 32)) # Ajustar tamaño del icono
+                item.setIcon(0, QIcon(self.widget_icon_path))
+                item.setSizeHint(0, QSize(32, 32))
             
             self.item_to_widget_map[id(item)] = widget_index
             self.full_text_map[id(item)] = {"name": name, "abbr": abbr}
@@ -135,62 +136,72 @@ class VentanaPrincipal(QMainWindow):
             item = QTreeWidgetItem(parent_item, [f"Error: {abbr}"])
             item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
             item.setForeground(0, Qt.red)
-            item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft) # Alineación para ítems de error
-            
+            item.setTextAlignment(0, Qt.AlignTop | Qt.AlignLeft)
 
     def on_menu_item_changed(self, current_item: QTreeWidgetItem, previous_item: QTreeWidgetItem):
         if current_item and current_item.flags() & Qt.ItemIsSelectable:
             widget_index = self.item_to_widget_map.get(id(current_item))
             if widget_index is not None:
                 self.stacked_widget.setCurrentIndex(widget_index)
-        # else:
-            # print("  Item no seleccionable o nulo.")
 
+    # ---------------- Señales de categorías ----------------
+    def on_category_expanded(self, item: QTreeWidgetItem):
+        if item.data(0, Qt.UserRole) == "category" and os.path.exists(self.category_icon_down_path):
+            item.setIcon(0, QIcon(self.category_icon_down_path))
+
+    def on_category_collapsed(self, item: QTreeWidgetItem):
+        if item.data(0, Qt.UserRole) == "category" and os.path.exists(self.category_icon_right_path):
+            item.setIcon(0, QIcon(self.category_icon_right_path))
+
+    # ---------------- Sidebar ----------------
     def toggle_sidebar(self):
-        """Invierte el estado colapsado/expandido y actualiza la UI."""
         self.sidebar_collapsed = not self.sidebar_collapsed
         self.update_sidebar_state()
 
     def update_sidebar_state(self):
-        """Aplica los cambios visuales según el estado del sidebar."""
         if self.sidebar_collapsed:
-            self.sidebar_container.setFixedWidth(80) # Ancho para abreviaturas
-            # Usar el icono SVG
-            if os.path.exists(self.chevrons_icon_path):
-                self.toggle_button.setIcon(QIcon(self.chevrons_icon_path))
-                self.toggle_button.setText("") # Limpiar texto si hay icono
-                self.toggle_button.setIconSize(QSize(32, 32)) # Ajustar tamaño del icono
+            # --- Sidebar colapsado ---
+            self.sidebar_container.setFixedWidth(50)  # más angosto
+            if os.path.exists(self.category_icon_right_path):
+                self.toggle_button.setIcon(QIcon(self.category_icon_right_path))
+                self.toggle_button.setText("")
+                self.toggle_button.setIconSize(QSize(24, 24))
             else:
-                self.toggle_button.setText(">>") # Fallback si no se encuentra el icono
+                self.toggle_button.setText(">>")
             
-            # Actualizar texto de los ítems del árbol
+            # Ocultar texto en categorías e ítems
             iterator = QTreeWidgetItemIterator(self.sidebar_tree)
             while iterator.value():
                 item = iterator.value()
-                if item.data(0, Qt.UserRole) == "category": # Si es categoría
-                    item.setText(0, "") 
-                    item.setToolTip(0, self.full_text_map.get(id(item), {}).get("name", "")) # Guardar texto original en tooltip
-                else: # Si es un ítem de widget
-                    item_id = id(item)
-                    if item_id in self.full_text_map:
+                if item.data(0, Qt.UserRole) == "category":
+                    item.setText(0, "")
+                    item.setToolTip(0, self.full_text_map.get(id(item), {}).get("name", ""))
+                else:
+                    if id(item) in self.full_text_map:
                         item.setText(0, "")
                 iterator += 1
-            self.sidebar_tree.expandAll() # Asegurar que las categorías estén expandidas
+
+            self.sidebar_tree.expandAll()
 
         else:
+            # --- Sidebar expandido ---
             self.sidebar_container.setFixedWidth(240)
-            self.toggle_button.setIcon(QIcon()) # Limpiar icono
-            self.toggle_button.setText("MENU") # Texto 'MENU'
+            if os.path.exists(self.align_justify_icon_path):
+                self.toggle_button.setIcon(QIcon(self.align_justify_icon_path))
+                self.toggle_button.setText("")
+                self.toggle_button.setIconSize(QSize(24, 24))
+            else:
+                self.toggle_button.setText("MENU")
             
-            # Restaurar texto de los ítems del árbol
+            # Restaurar textos
             iterator = QTreeWidgetItemIterator(self.sidebar_tree)
             while iterator.value():
                 item = iterator.value()
-                if item.data(0, Qt.UserRole) == "category": # Si es categoría
-                    item.setText(0, self.full_text_map.get(id(item), {}).get("name", "")) # Restaurar desde tooltip
-                else: # Si es un ítem de widget
-                    item_id = id(item)
-                    if item_id in self.full_text_map:
-                        item.setText(0, self.full_text_map[item_id]["name"])
+                if item.data(0, Qt.UserRole) == "category":
+                    item.setText(0, self.full_text_map.get(id(item), {}).get("name", ""))
+                else:
+                    if id(item) in self.full_text_map:
+                        item.setText(0, self.full_text_map[id(item)]["name"])
                 iterator += 1
-            self.sidebar_tree.expandAll() # Asegurar que las categorías estén expandidas
+
+            self.sidebar_tree.expandAll()
