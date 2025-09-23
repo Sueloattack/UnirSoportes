@@ -1,0 +1,70 @@
+# Gitignore para el proyecto "Herramientas JJAC" (Python/PySide6)
+# Este archivo le dice a Git qué archivos y directorios debe ignorar.
+
+# 1. Entorno Virtual de Python
+# Nunca se debe subir el entorno virtual. Contiene paquetes instalados
+# que son específicos de tu sistema y pueden ser muy pesados.
+# Cualquiera que clone el proyecto debe crear el suyo usando 'requirements.txt'.
+venv/
+.venv/
+env/
+.env/
+
+# 2. Python - Caché de Bytecode y Artefactos
+# Estos archivos se generan automáticamente cada vez que ejecutas tu código.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 3. Configuración del Editor de Código y del IDE
+# Archivos específicos de tu configuración local que no deben compartirse.
+# Visual Studio Code
+.vscode/
+# PyCharm
+.idea/
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# 4. Artefactos de Compilación y Distribución
+# Carpetas y archivos generados si decides empaquetar tu aplicación
+# con herramientas como PyInstaller.
+/dist/
+/build/
+/*.egg-info/
+*.spec
+
+# 5. Archivos Generados por el Sistema Operativo
+# Basura que generan Windows, macOS y Linux.
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# Linux
+*~
+.directory
+
+# 6. Archivos de Log y Temporales
+# Es una buena práctica ignorar archivos de log que la aplicación pueda generar.
+*.log
+logs/
+log/
+tmp/
+temp/
+
+# 7. Información Sensible y Configuración Local
+# ¡NUNCA subas archivos que contengan contraseñas, claves API o tokens!
+.env
+.env.*
+config.ini
+secrets.yml
+
+# 8. Artefactos de Pruebas (si usas pytest, por ejemplo)
+.pytest_cache/
+.coverage
+htmlcov/

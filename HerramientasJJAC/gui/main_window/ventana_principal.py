@@ -5,11 +5,13 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon
 
+from recursos.utils import resource_path
+
 
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Herramientas JJAC")
+        self.setWindowTitle("Comandos para carpetiar glosas")
         self.setGeometry(100, 100, 1200, 700)
         self.sidebar_collapsed = True
         
@@ -27,11 +29,10 @@ class VentanaPrincipal(QMainWindow):
         main_layout.addWidget(self.sidebar_container)
         
         # ---------------- ICONOS ----------------
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.align_justify_icon_path = os.path.join(project_root, "align-justify.svg")
-        self.category_icon_right_path = os.path.join(project_root, "chevrons-right.svg")
-        self.category_icon_down_path = os.path.join(project_root, "chevrons-down.svg")
-        self.widget_icon_path = os.path.join(project_root, "chevron-right.svg")
+        self.align_justify_icon_path = resource_path("align-justify.svg")
+        self.category_icon_right_path = resource_path("chevrons-right.svg")
+        self.category_icon_down_path = resource_path("chevrons-down.svg")
+        self.widget_icon_path = resource_path("chevron-right.svg")
 
         # Botón toggle sidebar
         self.toggle_button = QPushButton()

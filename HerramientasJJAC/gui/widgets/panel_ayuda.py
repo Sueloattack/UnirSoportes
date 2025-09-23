@@ -3,6 +3,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 import os
+from recursos.utils import resource_path
+
 
 class PanelAyudaWidget(QWidget):
     def __init__(self):
@@ -23,8 +25,7 @@ class PanelAyudaWidget(QWidget):
         layout_ayuda.setSpacing(20)
 
         # Add licencias.png
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        png_path = os.path.join(project_root, "licencias.png")
+        png_path = resource_path("licencias.png")
         if os.path.exists(png_path):
             pixmap = QPixmap(png_path)
             if not pixmap.isNull():

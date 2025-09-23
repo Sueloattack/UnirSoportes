@@ -13,6 +13,7 @@ COLOR_DEFAULT = "#ECF0F1"   # Blanco roto
 
 class BuscadorSoportesRatificadosWorker(QObject):
     log_generado = Signal(str)
+    progreso_actualizado = Signal(str, float)
     proceso_finalizado = Signal()
 
     def __init__(self, numeros_factura: list[str], dir_busqueda: str, dir_destino: str):
@@ -31,9 +32,13 @@ class BuscadorSoportesRatificadosWorker(QObject):
         self._log(f"Directorio de Destino: {self.dir_destino}")
 
         try:
-            for numero in self.numeros_factura:
+            total_facturas = len(self.numeros_factura)
+            for i, numero in enumerate(self.numeros_factura):
                 if self.esta_cancelado: break
                 
+                porcentaje = ((i + 1) / total_facturas) * 100
+                self.progreso_actualizado.emit(f"Buscando soportes para factura: {numero}", porcentaje)
+
                 self._log(f"<br><b>Buscando soportes para factura: {numero}</b>", COLOR_INFO)
                 
                 carpetas_origen = self._encontrar_carpetas_origen(numero)
@@ -60,6 +65,7 @@ class BuscadorSoportesRatificadosWorker(QObject):
         except Exception as e:
             self._log(f"<b>ERROR CRÍTICO:</b> {e}", COLOR_ERROR)
         
+        self.progreso_actualizado.emit("Operación completada.", 100)
         self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
         self.proceso_finalizado.emit()
         

@@ -15,53 +15,135 @@ class ResultadosAuditorDialog(QDialog):
         self.resultados = resultados
         self.worker = worker
 
+        # Layout principal
         layout = QVBoxLayout(self)
         
+        # Título
         label_titulo = QLabel("Resumen Final de la Auditoría")
         label_titulo.setStyleSheet("font-size: 20px; font-weight: bold;")
         layout.addWidget(label_titulo)
 
-        # Resumen
-        resumen = self.resultados['resumen']
-        for key, value in resumen.items():
-            layout.addWidget(QLabel(f"{key.replace('_', ' ').capitalize()}: {value}"))
+        # Área de scroll para los resultados
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        layout.addWidget(scroll_area)
 
-        # Pestañas para detalles
-        from PySide6.QtWidgets import QTabWidget
-        pestanas = QTabWidget()
-        layout.addWidget(pestanas)
+        widget_contenido = QWidget()
+        scroll_area.setWidget(widget_contenido)
+        layout_resultados = QVBoxLayout(widget_contenido)
 
-        # Faltantes
-        texto_faltantes = "\n".join(self.resultados['facturas_faltantes'])
-        editor_faltantes = QTextEdit(texto_faltantes)
-        editor_faltantes.setReadOnly(True)
-        pestanas.addTab(editor_faltantes, f"Facturas Faltantes ({len(self.resultados['facturas_faltantes'])})")
+        # --- Sección de Resumen ---
+        resumen = self.resultados.get('resumen', {})
+        if resumen:
+            label_resumen_titulo = QLabel("RESUMEN GENERAL")
+            label_resumen_titulo.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;") # Verde
+            layout_resultados.addWidget(label_resumen_titulo)
 
-        # Sobrantes
-        texto_sobrantes = "\n".join([f"{num}: {nombre}" for num, nombre in self.resultados['carpetas_sobrantes'].items()])
-        self.editor_sobrantes = QTextEdit(texto_sobrantes)
-        self.editor_sobrantes.setReadOnly(True)
-        pestanas.addTab(self.editor_sobrantes, f"Carpetas Sobrantes ({len(self.resultados['carpetas_sobrantes'])})")
+            # Sub-sección: Datos del PDF
+            label_sub_pdf = QLabel("Datos del PDF")
+            label_sub_pdf.setStyleSheet("font-weight: bold; color: #3498db;") # Azul
+            layout_resultados.addWidget(label_sub_pdf)
+            
+            pdf_items = {
+                'informe': "Informe PDF",
+                'total_glosas': "Total de glosas en PDF",
+                'total_facturas_unicas': "Facturas únicas en PDF"
+            }
+            for key, text in pdf_items.items():
+                if key in resumen:
+                    label_item = QLabel(f"  - {text}: {resumen[key]}")
+                    label_item.setStyleSheet("color: #ecf0f1;")
+                    layout_resultados.addWidget(label_item)
 
-        if self.resultados['carpetas_sobrantes']:
-            self.boton_eliminar = QPushButton("Eliminar Carpetas Sobrantes")
+            # Sub-sección: Análisis de Carpetas
+            label_sub_carpetas = QLabel("Análisis de Carpetas")
+            label_sub_carpetas.setStyleSheet("font-weight: bold; color: #3498db;") # Azul
+            layout_resultados.addWidget(label_sub_carpetas)
+
+            carpetas_items = {
+                'carpetas_en_disco': "Carpetas encontradas",
+                'facturas_con_carpeta': "Facturas con carpeta",
+                'facturas_faltantes': "Facturas sin carpeta",
+                'carpetas_sobrantes': "Carpetas sobrantes"
+            }
+            for key, text in carpetas_items.items():
+                if key in resumen:
+                    label_item = QLabel(f"  - {text}: {resumen[key]}")
+                    label_item.setStyleSheet("color: #ecf0f1;")
+                    layout_resultados.addWidget(label_item)
+
+        # --- Sección de Facturas Faltantes ---
+        facturas_faltantes = self.resultados.get('facturas_faltantes', [])
+        if facturas_faltantes:
+            label_faltantes = QLabel(f"FACTURAS FALTANTES EN CARPETAS ({len(facturas_faltantes)})")
+            label_faltantes.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;") # Rojo
+            layout_resultados.addWidget(label_faltantes)
+            for item in facturas_faltantes:
+                label_item = QLabel(f"✖ {item}")
+                label_item.setStyleSheet("color: #ecf0f1;")
+                layout_resultados.addWidget(label_item)
+
+        # --- Sección de Carpetas Sobrantes ---
+        carpetas_sobrantes = self.resultados.get('carpetas_sobrantes', {})
+        if carpetas_sobrantes:
+            label_sobrantes = QLabel(f"CARPETAS SOBRANTES ({len(carpetas_sobrantes)})")
+            label_sobrantes.setStyleSheet("font-size: 16px; font-weight: bold; color: #f39c12;") # Naranja
+            layout_resultados.addWidget(label_sobrantes)
+            
+            self.labels_sobrantes = {}
+            for num, nombre in carpetas_sobrantes.items():
+                label_item = QLabel(f"✖ {num}: {nombre}")
+                label_item.setStyleSheet("color: #ecf0f1;")
+                layout_resultados.addWidget(label_item)
+                self.labels_sobrantes[num] = label_item
+
+        layout_resultados.addStretch()
+
+        # --- Botones de Acción ---
+        layout_botones = QHBoxLayout()
+        
+        if self.resultados.get('carpetas_sobrantes'):
+            self.boton_eliminar = QPushButton("Eliminar Sobrantes")
+            self.boton_eliminar.setObjectName("BotonPeligro") # Asignar nombre de objeto para QSS
             self.boton_eliminar.clicked.connect(self.eliminar_sobrantes)
-            layout.addWidget(self.boton_eliminar)
+            layout_botones.addWidget(self.boton_eliminar)
 
+        layout_botones.addStretch()
+        
         boton_cerrar = QPushButton("Cerrar")
+        boton_cerrar.setObjectName("BotonNeutral") # Asignar nombre de objeto para QSS
         boton_cerrar.clicked.connect(self.accept)
-        layout.addWidget(boton_cerrar)
+        layout_botones.addWidget(boton_cerrar)
+        
+        layout.addLayout(layout_botones)
 
     def eliminar_sobrantes(self):
+        carpetas_a_eliminar = self.resultados.get('carpetas_sobrantes', {})
+        if not carpetas_a_eliminar:
+            QMessageBox.information(self, "Información", "No hay carpetas sobrantes para eliminar.")
+            return
+
         confirmacion = QMessageBox.warning(self, "Confirmar Eliminación", 
-                                           f"¿Estás seguro de que deseas eliminar {len(self.resultados['carpetas_sobrantes'])} carpetas de forma permanente?",
+                                           f"¿Estás seguro de que deseas eliminar {len(carpetas_a_eliminar)} carpetas de forma permanente?",
                                            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
         if confirmacion == QMessageBox.Yes:
-            eliminados, fallidos = self.worker.eliminar_carpetas_sobrantes(self.resultados['carpetas_sobrantes'])
-            QMessageBox.information(self, "Resultado de la Eliminación", 
-                                    f"Se eliminaron {eliminados} carpetas.\nFallaron {len(fallidos)} eliminaciones.")
-            self.editor_sobrantes.clear()
+            eliminados, fallidos = self.worker.eliminar_carpetas_sobrantes(carpetas_a_eliminar)
+            
+            # Actualizar la UI
+            if eliminados:
+                # Eliminar las etiquetas de las carpetas que se borraron con éxito
+                for num_factura in eliminados:
+                    if num_factura in self.labels_sobrantes:
+                        self.labels_sobrantes[num_factura].setText(f"✔ {self.labels_sobrantes[num_factura].text().strip('✖ ')} (Eliminada)")
+                        self.labels_sobrantes[num_factura].setStyleSheet("color: #2ecc71;") # Verde
+            
             self.boton_eliminar.setEnabled(False)
+            self.boton_eliminar.setText("Sobrantes Eliminados")
+
+            # Mensaje final
+            QMessageBox.information(self, "Resultado de la Eliminación", 
+                                    f"Se eliminaron {len(eliminados)} carpetas.\nFallaron {len(fallidos)} eliminaciones.")
 
 class AuditorCuentasCobroWidget(QWidget):
     def __init__(self):

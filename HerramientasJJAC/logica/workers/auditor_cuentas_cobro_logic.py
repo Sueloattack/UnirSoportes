@@ -98,13 +98,13 @@ class AuditorCuentasCobroWorker(QObject):
         self.proceso_finalizado.emit(resultados)
 
     def eliminar_carpetas_sobrantes(self, carpetas_a_eliminar):
-        eliminados = 0
+        eliminados = []
         fallidos = []
         for number, full_name in carpetas_a_eliminar.items():
             ruta_a_eliminar = os.path.join(self.folders_path, full_name)
             try:
                 shutil.rmtree(ruta_a_eliminar)
-                eliminados += 1
+                eliminados.append(number)
             except Exception as e:
                 fallidos.append(f"'{full_name}': {e}")
         return eliminados, fallidos
