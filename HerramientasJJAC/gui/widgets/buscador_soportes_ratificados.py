@@ -1,7 +1,7 @@
 # gui/widget_traer_soportes_ratificadas.py
 import sys
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
-                               QPushButton, QTextEdit, QMessageBox, QTextBrowser, QFileDialog, QHBoxLayout, QProgressBar)
+                               QPushButton, QTextEdit, QMessageBox, QTextBrowser, QFileDialog, QHBoxLayout)
 from PySide6.QtCore import QThread, Qt
 
 from logica.workers.buscador_soportes_ratificados_logic import BuscadorSoportesRatificadosWorker
@@ -31,7 +31,7 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         layout_inputs.setSpacing(10)
 
         self.editor_facturas = QTextEdit()
-        self.editor_facturas.setPlaceholderText("Pega aquí la lista de códigos de factura (uno por línea y solo números)...\n336304\n336519\n... ")
+        self.editor_facturas.setPlaceholderText("Pega aquí la lista de códigos de factura (uno por línea y solo números)\n336304\n336519 ")
         layout_inputs.addWidget(self.editor_facturas)
         
         selector_busqueda_layout = QHBoxLayout()
@@ -63,18 +63,8 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         self.btn_iniciar.clicked.connect(self.iniciar_proceso)
         layout_principal.addWidget(self.btn_iniciar)
 
-        # 4. Grupo de Progreso
-        group_progreso = QGroupBox("2. Progreso")
-        layout_progreso = QVBoxLayout(group_progreso)
-        self.label_progreso = QLabel("Esperando para iniciar...")
-        self.barra_progreso = QProgressBar()
-        self.barra_progreso.setValue(0)
-        layout_progreso.addWidget(self.label_progreso)
-        layout_progreso.addWidget(self.barra_progreso)
-        layout_principal.addWidget(group_progreso)
-        
-        # 5. Grupo para Resultados (Log)
-        group_results = QGroupBox("3. Resultados")
+        # 4. Grupo para Resultados (Log)
+        group_results = QGroupBox("2. Resultados")
         layout_results = QVBoxLayout(group_results)
         self.log_viewer = QTextBrowser()
         layout_results.addWidget(self.log_viewer)
@@ -103,29 +93,29 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         self.btn_iniciar.setText("Procesando...")
         self.btn_iniciar.setEnabled(False)
         self.log_viewer.clear()
-        self.label_progreso.setText("Iniciando proceso...")
-        self.barra_progreso.setValue(0)
+        self.log_viewer.append("Iniciando proceso...")
         
         self.thread = QThread()
         self.worker = BuscadorSoportesRatificadosWorker(numeros_factura, dir_busqueda, dir_destino)
         self.worker.moveToThread(self.thread)
         
         self.worker.log_generado.connect(self.actualizar_log)
-        self.worker.progreso_actualizado.connect(self.actualizar_progreso)
+        # Se elimina la conexión de la señal de progreso
+        # self.worker.progreso_actualizado.connect(self.actualizar_progreso)
         self.worker.proceso_finalizado.connect(self.finalizar_proceso)
         self.thread.started.connect(self.worker.ejecutar)
         
         self.thread.start()
 
-    def actualizar_progreso(self, mensaje, porcentaje):
-        self.label_progreso.setText(mensaje)
-        self.barra_progreso.setValue(int(porcentaje))
+    # Se elimina el método para actualizar el progreso
+    # def actualizar_progreso(self, mensaje, porcentaje):
+    #     pass
 
     def actualizar_log(self, mensaje_html: str):
         self.log_viewer.append(mensaje_html)
 
     def finalizar_proceso(self):
-        self.label_progreso.setText("Proceso finalizado.")
+        self.log_viewer.append("<b>Proceso finalizado.</b>")
         self.btn_iniciar.setText("Iniciar Búsqueda y Copia")
         self.btn_iniciar.setEnabled(True)
         self.thread.quit()
