@@ -28,6 +28,9 @@ class VentanaPrincipal(QMainWindow):
         sidebar_layout.setSpacing(10)
         main_layout.addWidget(self.sidebar_container)
         
+        self.SIDEBAR_WIDTH_COLLAPSED = 47
+        self.SIDEBAR_WIDTH_EXPANDED = 300
+        
         # ---------------- ICONOS ----------------
         self.align_justify_icon_path = resource_path("align-justify.svg")
         self.category_icon_right_path = resource_path("chevrons-right.svg")
@@ -77,26 +80,25 @@ class VentanaPrincipal(QMainWindow):
     def poblar_menu(self):
         # 1. Categoría Procesamiento
         cat_procesamiento = self._add_category("PROCESAMIENTO")
-        self._add_widget(cat_procesamiento, "Unir Soportes", "US", "widgets.unir_soportes", "UnirSoportesWidget")
-        self._add_widget(cat_procesamiento, "Procesamiento ADRES", "PA", "widgets.organizador_respuestas_adres", "OrganizadorRespuestasAdresWidget")
+        self._add_widget(cat_procesamiento, "Unir soportes", "US", "widgets.unir_soportes", "UnirSoportesWidget")
+        self._add_widget(cat_procesamiento, "Revisor de facturas", "AUD", "widgets.auditor_cuentas_cobro", "AuditorCuentasCobroWidget")
+
 
         # 2. Categoría Organización
         cat_organizacion = self._add_category("ORGANIZACIÓN")
-        self._add_widget(cat_organizacion, "Organizar PDFs", "ORG", "widgets.organizador_respuestas", "OrganizadorRespuestasWidget")
-        self._add_widget(cat_organizacion, "Organizar XMLs", "XML", "widgets.organizador_xml", "OrganizadorXMLWidget")
+        self._add_widget(cat_organizacion, "Mover respuestas", "ORG", "widgets.organizador_respuestas", "OrganizadorRespuestasWidget")
+        self._add_widget(cat_organizacion, "Mover respuestas ADRES", "PA", "widgets.organizador_respuestas_adres", "OrganizadorRespuestasAdresWidget")
+        self._add_widget(cat_organizacion, "Mover XMLs", "XML", "widgets.organizador_xml", "OrganizadorXMLWidget")
         self._add_widget(cat_organizacion, "Reorganizar Sedes", "ENV", "widgets.reorganizador_sedes", "ReorganizadorSedesWidget")
 
         # 3. Categoría Búsqueda
         cat_busqueda = self._add_category("BÚSQUEDA")
         self._add_widget(cat_busqueda, "Traer Soportes ADRES", "TSA", "widgets.traer_soportes_adres", "TraerSoportesAdresWidget")
-        self._add_widget(cat_busqueda, "Buscador Soportes Ratificadas", "BSR", "widgets.buscador_soportes_ratificados", "BuscadorSoportesRatificadosWidget")
-        self._add_widget(cat_busqueda, "Buscador de Carpetas", "BC", "widgets.buscador_carpetas_ratificadas", "BuscadorCarpetasRatificadasWidget")
-
-        # 4. Categoría Auditoría
-        cat_auditoria = self._add_category("AUDITORÍA")
-        self._add_widget(cat_auditoria, "Auditor de Facturas", "AUD", "widgets.auditor_cuentas_cobro", "AuditorCuentasCobroWidget")
+        self._add_widget(cat_busqueda, "Buscar Soportes NU", "BSN", "widgets.buscador_soportes_nuevos", "BuscadorSoportesNuevosWidget")
+        self._add_widget(cat_busqueda, "Buscar Soportes R2", "BSR", "widgets.buscador_soportes_ratificados", "BuscadorSoportesRatificadosWidget")
+        self._add_widget(cat_busqueda, "Buscar carpetas ADRES", "BC", "widgets.buscador_carpetas_ratificadas", "BuscadorCarpetasRatificadasWidget")
         
-        # 5. Categoría Sistema
+        # 4. Categoría Sistema
         cat_sistema = self._add_category("SISTEMA")
         self._add_widget(cat_sistema, "Ayuda y Recomendaciones", "AYU", "widgets.panel_ayuda", "PanelAyudaWidget")
 
@@ -162,7 +164,7 @@ class VentanaPrincipal(QMainWindow):
     def update_sidebar_state(self):
         if self.sidebar_collapsed:
             # --- Sidebar colapsado ---
-            self.sidebar_container.setFixedWidth(50)  # más angosto
+            self.sidebar_container.setFixedWidth(self.SIDEBAR_WIDTH_COLLAPSED)  # más angosto
             if os.path.exists(self.category_icon_right_path):
                 self.toggle_button.setIcon(QIcon(self.category_icon_right_path))
                 self.toggle_button.setText("")
@@ -186,7 +188,7 @@ class VentanaPrincipal(QMainWindow):
 
         else:
             # --- Sidebar expandido ---
-            self.sidebar_container.setFixedWidth(240)
+            self.sidebar_container.setFixedWidth(self.SIDEBAR_WIDTH_EXPANDED)
             if os.path.exists(self.align_justify_icon_path):
                 self.toggle_button.setIcon(QIcon(self.align_justify_icon_path))
                 self.toggle_button.setText("")

@@ -1,12 +1,12 @@
-# gui/widget_traer_soportes_ratificadas.py
+# gui/widgets/buscador_soportes_nuevos.py
 import sys
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
                                QPushButton, QTextEdit, QMessageBox, QTextBrowser, QFileDialog, QHBoxLayout)
 from PySide6.QtCore import QThread, Qt
 
-from logica.workers.buscador_soportes_ratificados_logic import BuscadorSoportesRatificadosWorker
+from logica.workers.buscador_soportes_nuevos_logic import BuscadorSoportesNuevosWorker
 
-class BuscadorSoportesRatificadosWidget(QWidget):
+class BuscadorSoportesNuevosWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.worker = None
@@ -19,13 +19,11 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         layout_principal.setContentsMargins(20, 20, 20, 20)
         layout_principal.setSpacing(15)
 
-        # 1. Título principal
-        label_titulo = QLabel("Buscador de soportes ratificados para aseguradoras")
+        label_titulo = QLabel("Buscador de Soportes Nuevos (NU)")
         label_titulo.setObjectName("AyudaTitulo")
         label_titulo.setAlignment(Qt.AlignCenter)
         layout_principal.addWidget(label_titulo)
         
-        # 2. Grupo para Entradas de Datos
         group_inputs = QGroupBox("1. Entradas de Datos")
         layout_inputs = QVBoxLayout(group_inputs)
         layout_inputs.setSpacing(10)
@@ -46,7 +44,7 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         
         selector_destino_layout = QHBoxLayout()
         self.line_destino = QLineEdit()
-        self.line_destino.setPlaceholderText("Selecciona la carpeta con subcarpetas de FACTURAS de destino...")
+        self.line_destino.setPlaceholderText("Selecciona la carpeta de destino para los soportes...")
         self.line_destino.setReadOnly(True)
         btn_destino = QPushButton("Seleccionar...")
         btn_destino.clicked.connect(lambda: self._seleccionar_carpeta(self.line_destino))
@@ -56,14 +54,12 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         
         layout_principal.addWidget(group_inputs)
 
-        # 3. Botón de Acción Principal
         self.btn_iniciar = QPushButton("Iniciar Búsqueda y Copia")
         self.btn_iniciar.setObjectName("BotonPrincipal")
         self.btn_iniciar.setFixedHeight(40)
         self.btn_iniciar.clicked.connect(self.iniciar_proceso)
         layout_principal.addWidget(self.btn_iniciar)
 
-        # 4. Grupo para Resultados (Log)
         group_results = QGroupBox("2. Resultados")
         layout_results = QVBoxLayout(group_results)
         self.log_viewer = QTextBrowser()
@@ -96,20 +92,14 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         self.log_viewer.append("Iniciando proceso...")
         
         self.thread = QThread()
-        self.worker = BuscadorSoportesRatificadosWorker(facturas_con_serie, dir_busqueda, dir_destino)
+        self.worker = BuscadorSoportesNuevosWorker(facturas_con_serie, dir_busqueda, dir_destino)
         self.worker.moveToThread(self.thread)
         
         self.worker.log_generado.connect(self.actualizar_log)
-        # Se elimina la conexión de la señal de progreso
-        # self.worker.progreso_actualizado.connect(self.actualizar_progreso)
         self.worker.proceso_finalizado.connect(self.finalizar_proceso)
         self.thread.started.connect(self.worker.ejecutar)
         
         self.thread.start()
-
-    # Se elimina el método para actualizar el progreso
-    # def actualizar_progreso(self, mensaje, porcentaje):
-    #     pass
 
     def actualizar_log(self, mensaje_html: str):
         self.log_viewer.append(mensaje_html)

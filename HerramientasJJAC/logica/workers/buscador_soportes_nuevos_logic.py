@@ -1,9 +1,8 @@
+# logica/workers/buscador_soportes_nuevos_logic.py
 import os
 import shutil
 import re
 from PySide6.QtCore import QObject, Signal
-
-from logica.core.identificador_archivos import identificar_documentos_aseguradoras
 
 # --- COLORES OPTIMIZADOS PARA DARK MODE ---
 COLOR_INFO = "#5DADE2"      # Azul claro
@@ -12,7 +11,7 @@ COLOR_WARNING = "#F39C12"   # Naranja
 COLOR_ERROR = "#E74C3C"      # Rojo claro
 COLOR_DEFAULT = "#ECF0F1"   # Blanco roto
 
-class BuscadorSoportesRatificadosWorker(QObject):
+class BuscadorSoportesNuevosWorker(QObject):
     log_generado = Signal(str)
     progreso_actualizado = Signal(str, float)
     proceso_finalizado = Signal()
@@ -30,13 +29,12 @@ class BuscadorSoportesRatificadosWorker(QObject):
         self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
     def ejecutar(self):
-        self._log("<b>Iniciando búsqueda y copia de soportes RATIFICADOS (R2)...</b>", COLOR_INFO)
+        self._log("<b>Iniciando búsqueda y copia de soportes NUEVOS...</b>", COLOR_INFO)
         self._log(f"Directorio de Búsqueda: {self.dir_busqueda}")
         self._log(f"Directorio de Destino: {self.dir_destino}")
 
         try:
-            # 1. FASE DE INDEXACIÓN
-            self._log("Creando índice de carpetas...", COLOR_INFO)
+            self._log("Creando índice de carpetas... Esto puede tardar un momento.", COLOR_INFO)
             self.progreso_actualizado.emit("Escaneando directorios...", 0)
             
             indice_carpetas = {}
@@ -46,7 +44,6 @@ class BuscadorSoportesRatificadosWorker(QObject):
             
             self._log(f"Se indexaron {len(indice_carpetas)} nombres de carpetas únicos.", COLOR_SUCCESS)
 
-            # 2. FASE DE PROCESAMIENTO
             total_facturas = len(self.facturas_con_serie)
             for i, factura_input in enumerate(self.facturas_con_serie):
                 factura_limpia = factura_input.strip()
@@ -60,7 +57,7 @@ class BuscadorSoportesRatificadosWorker(QObject):
 
                 match = re.match(r'([a-zA-Z]+)(\d+)', factura_limpia)
                 if not match:
-                    self._log(f"-> Formato no válido. Se esperaba 'SERIENUMERO'.", COLOR_WARNING)
+                    self._log(f"-> Formato no válido.", COLOR_WARNING)
                     self.fallos_lista.append(f"{factura_limpia} (formato no válido)")
                     continue
                 
@@ -74,32 +71,24 @@ class BuscadorSoportesRatificadosWorker(QObject):
                     self.fallos_lista.append(f"{factura_limpia} (carpeta no encontrada)")
                     continue
                 
-                # --- LÓGICA DE SELECCIÓN PARA R2 ---
-                carpeta_origen_final = None
                 if len(rutas_encontradas) > 1:
-                    rutas_encontradas.sort(key=os.path.getmtime, reverse=True) # Ordenar de más nueva a más vieja
-                    self._log(f"-> Se encontraron {len(rutas_encontradas)} carpetas. Seleccionando la penúltima.", COLOR_INFO)
-                    carpeta_origen_final = rutas_encontradas[1] # La penúltima
-                elif len(rutas_encontradas) == 1:
-                    self._log("-> Se encontró una única carpeta.", COLOR_INFO)
-                    carpeta_origen_final = rutas_encontradas[0]
-                else:
-                    self.fallos_lista.append(f"{factura_limpia} (error inesperado)")
+                    self._log(f"-> ERROR: Se encontraron {len(rutas_encontradas)} carpetas para el número '{numero_factura}'. Se esperaba solo una.", COLOR_ERROR)
+                    self.fallos_lista.append(f"{factura_limpia} (múltiples carpetas)")
                     continue
-                
-                self._log(f"-> Usando carpeta de origen: <b>{carpeta_origen_final}</b>")
 
-                # Verificación de serie
-                archivos_en_carpeta = os.listdir(carpeta_origen_final)
+                carpeta_encontrada = rutas_encontradas[0]
+                self._log(f"-> Soportes encontrados en: <b>{carpeta_encontrada}</b>", COLOR_SUCCESS)
+
+                archivos_en_carpeta = os.listdir(carpeta_encontrada)
                 if not any(serie.lower() in nombre_archivo.lower() for nombre_archivo in archivos_en_carpeta):
-                    self._log(f"-> La serie '{serie}' no fue encontrada en los archivos. Omitiendo.", COLOR_WARNING)
+                    self._log(f"-> La serie '{serie}' no fue encontrada en los archivos de la carpeta. Omitiendo.", COLOR_WARNING)
                     self.fallos_lista.append(f"{factura_limpia} (serie no coincide)")
                     continue
 
                 self._log(f"-> Serie '{serie}' verificada. Copiando soportes.", COLOR_SUCCESS)
                 
-                # Pasamos el número de factura para que la subcarpeta de destino se llame así
-                self._copiar_soportes(carpeta_origen_final, self.dir_destino, numero_factura)
+                ruta_destino_subcarpeta = os.path.join(self.dir_destino, numero_factura)
+                self._copiar_soportes(carpeta_encontrada, ruta_destino_subcarpeta, factura_limpia)
                 self.exitos_lista.append(factura_limpia)
 
         except Exception as e:
@@ -118,42 +107,30 @@ class BuscadorSoportesRatificadosWorker(QObject):
         self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
         self.proceso_finalizado.emit()
         
-    def _copiar_soportes(self, ruta_origen: str, dir_destino_general: str, numero_factura: str):
+    def _copiar_soportes(self, ruta_origen: str, ruta_destino: str, factura_info: str):
         archivos_copiados = 0
         try:
-            # Identificar solo los archivos que son soportes
-            archivos_pdf_nombres = [f for f in os.listdir(ruta_origen) if f.lower().endswith('.pdf')]
-            documentos = identificar_documentos_aseguradoras(archivos_pdf_nombres, ruta_origen)
-            soportes_a_copiar = documentos.get('soportes', [])
+            if not os.path.isdir(ruta_destino):
+                os.makedirs(ruta_destino)
+                self._log(f"-> Carpeta de destino creada: {os.path.basename(ruta_destino)}", COLOR_INFO)
 
-            if not soportes_a_copiar:
-                self._log("-> No se identificaron archivos de soporte específicos para copiar.")
-                return
-
-            # Crear la carpeta de destino final con el número de factura
-            ruta_destino_especifica = os.path.join(dir_destino_general, numero_factura)
-            if not os.path.isdir(ruta_destino_especifica):
-                os.makedirs(ruta_destino_especifica)
-                self._log(f"-> Carpeta de destino creada: {numero_factura}", COLOR_INFO)
-
-            self._log(f"-> Se identificaron {len(soportes_a_copiar)} soportes específicos. Copiando...", COLOR_INFO)
-
-            for ruta_completa_origen in soportes_a_copiar:
-                nombre_item = os.path.basename(ruta_completa_origen)
-                ruta_completa_destino = os.path.join(ruta_destino_especifica, nombre_item)
-                
-                if not os.path.exists(ruta_completa_destino):
-                    shutil.copy2(ruta_completa_origen, ruta_completa_destino)
-                    archivos_copiados += 1
-                else:
-                    self._log(f"-> Omitido (ya existe): {nombre_item}", "gray")
+            for nombre_item in os.listdir(ruta_origen):
+                ruta_completa_origen = os.path.join(ruta_origen, nombre_item)
+                if os.path.isfile(ruta_completa_origen): # Copiar solo archivos
+                    ruta_completa_destino = os.path.join(ruta_destino, nombre_item)
+                    
+                    if not os.path.exists(ruta_completa_destino):
+                        shutil.copy2(ruta_completa_origen, ruta_completa_destino)
+                        archivos_copiados += 1
+                    else:
+                        self._log(f"-> Omitido (ya existe): {nombre_item}", "gray")
 
             if archivos_copiados > 0:
-                self._log(f"-> Se copiaron {archivos_copiados} archivos de soporte.", COLOR_SUCCESS)
+                self._log(f"-> Se copiaron {archivos_copiados} archivos.", COLOR_SUCCESS)
             else:
-                 self._log("-> No se copiaron nuevos soportes (todos existían).")
+                 self._log("-> No se copiaron nuevos archivos (o ya existían).")
         except Exception as e:
-            self._log(f"-> ❌ ERROR al copiar soportes para la factura '{numero_factura}': {e}", COLOR_ERROR)
+            self._log(f"-> ❌ ERROR al copiar soportes para '{factura_info}': {e}", COLOR_ERROR)
 
     def cancelar(self):
         self.esta_cancelado = True
