@@ -122,3 +122,4 @@ class BuscadorSoportesRatificadosWidget(QWidget):
         self.thread.wait()
         self.thread = None
         self.worker = None
+        QMessageBox.information(self, "Proceso Finalizado", "La búsqueda de soportes para facturas RATIFICADAS (R2) ha terminado.")

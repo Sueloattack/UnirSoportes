@@ -112,3 +112,4 @@ class BuscadorSoportesNuevosWidget(QWidget):
         self.thread.wait()
         self.thread = None
         self.worker = None
+        QMessageBox.information(self, "Proceso Finalizado", "La búsqueda de soportes para facturas NUEVAS (NU) ha terminado.")
