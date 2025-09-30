@@ -82,6 +82,7 @@ class VentanaPrincipal(QMainWindow):
         cat_procesamiento = self._add_category("PROCESAMIENTO")
         self._add_widget(cat_procesamiento, "Unir soportes", "US", "widgets.unir_soportes", "UnirSoportesWidget")
         self._add_widget(cat_procesamiento, "Revisor de facturas", "AUD", "widgets.auditor_cuentas_cobro", "AuditorCuentasCobroWidget")
+        self._add_widget(cat_procesamiento, "Renombrar archivos", "REN", "widgets.renombrador", "RenombradorWidget")
 
 
         # 2. Categoría Organización
