@@ -1,6 +1,6 @@
 # gui/widgets/renombrador.py
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QGroupBox
-from PySide6.QtCore import QThread
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QGroupBox, QLabel
+from PySide6.QtCore import QThread, Qt
 from gui.common.componentes_comunes import crear_selector_carpeta, setup_logging_browser
 from logica.workers.renombrador_logic import RenombradorWorker
 
@@ -20,6 +20,14 @@ class RenombradorWidget(QWidget):
 
     def init_ui(self):
         layout_principal = QVBoxLayout(self)
+        layout_principal.setContentsMargins(20, 20, 20, 20)
+        layout_principal.setSpacing(15)
+
+        # --- Título Principal --- #
+        label_titulo = QLabel("Renombrador archivos mundial")
+        label_titulo.setObjectName("AyudaTitulo")
+        label_titulo.setAlignment(Qt.AlignCenter)
+        layout_principal.addWidget(label_titulo)
 
         # --- Selector de Carpeta --- #
         self.ruta_carpeta_line_edit, selector_carpeta_layout = crear_selector_carpeta(
@@ -36,26 +44,20 @@ class RenombradorWidget(QWidget):
         self.boton_escolar = QPushButton("Escolar")
         self.boton_devolucion = QPushButton("Devolución")
         self.boton_glosa = QPushButton("Glosa")
-        self.boton_revertir_escolar = QPushButton("Revertir Renombrado Escolar")
 
         self.botones_modo = {
             'escolar': self.boton_escolar,
             'devolucion': self.boton_devolucion,
             'glosa': self.boton_glosa,
-            'revertir_escolar': self.boton_revertir_escolar
         }
 
         self.boton_escolar.clicked.connect(lambda: self.iniciar_proceso('escolar'))
         self.boton_devolucion.clicked.connect(lambda: self.iniciar_proceso('devolucion'))
         self.boton_glosa.clicked.connect(lambda: self.iniciar_proceso('glosa'))
-        self.boton_revertir_escolar.clicked.connect(lambda: self.iniciar_proceso('revertir_escolar'))
-
-        self.boton_revertir_escolar.setStyleSheet(f"background-color: {self.color_error}; color: white;")
 
         layout_acciones.addWidget(self.boton_escolar)
         layout_acciones.addWidget(self.boton_devolucion)
         layout_acciones.addWidget(self.boton_glosa)
-        layout_acciones.addWidget(self.boton_revertir_escolar)
         grupo_acciones.setLayout(layout_acciones)
         layout_principal.addWidget(grupo_acciones)
 
@@ -67,6 +69,8 @@ class RenombradorWidget(QWidget):
         # --- Log de Resultados --- #
         self.log_browser, log_group_box = setup_logging_browser("Resultados del Renombrado")
         layout_principal.addWidget(log_group_box)
+        
+        layout_principal.addStretch()
 
         self.habilitar_botones() # Llamada inicial para establecer el estado correcto
 
@@ -131,10 +135,7 @@ class RenombradorWidget(QWidget):
             boton.setEnabled(habilitado)
             
             if habilitado:
-                if modo == 'revertir_escolar':
-                    boton.setStyleSheet(f"background-color: {self.color_error}; color: white;")
-                else:
-                    boton.setStyleSheet("")
+                boton.setStyleSheet("")
             else:
                 if modo == modo_activo:
                     boton.setStyleSheet(f"background-color: {self.color_exito}; color: white;")

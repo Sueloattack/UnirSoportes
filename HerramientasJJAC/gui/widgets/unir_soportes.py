@@ -1,14 +1,14 @@
 # gui/widget_unir_soportes.py
 import sys
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, QHBoxLayout, 
-                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout, QGroupBox)
+                               QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout, QGroupBox, QTextEdit)
 from PySide6.QtCore import Qt, QThread
 from logica.workers.unir_soportes_logic import UnirSoportesWorker
 from gui.common.componentes_comunes import SelectorCarpeta
 
 class ResultadosDialog(QDialog):
     """
-    Ventana de resultados que muestra los éxitos y fallos del proceso.
+    Ventana de resultados que muestra los éxitos y fallos del proceso en un formato que permite copiar.
     """
     def __init__(self, resultados, parent=None):
         super().__init__(parent)
@@ -21,33 +21,31 @@ class ResultadosDialog(QDialog):
         label_titulo.setStyleSheet("font-size: 20px; font-weight: bold;")
         layout.addWidget(label_titulo)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        layout.addWidget(scroll_area)
-
-        widget_contenido = QWidget()
-        scroll_area.setWidget(widget_contenido)
-        layout_resultados = QVBoxLayout(widget_contenido)
+        resultados_texto = QTextEdit()
+        resultados_texto.setReadOnly(True)
+        
+        html_content = ""
 
         # Sección de Éxitos
         if resultados['exitosos']:
-            label_exitos = QLabel(f"ÉXITO ({len(resultados['exitosos'])})")
-            label_exitos.setStyleSheet("font-size: 16px; font-weight: bold; color: #2ecc71;") # Verde brillante
-            layout_resultados.addWidget(label_exitos)
+            html_content += f'<h2 style="font-size: 16px; font-weight: bold; color: #2ecc71;">ÉXITO ({len(resultados["exitosos"])})</h2>'
+            html_content += '<div style="color: #ecf0f1;">'
             for item in resultados['exitosos']:
-                label_item = QLabel(f"✔ {item['carpeta']}: {item['razon']}")
-                label_item.setStyleSheet("color: #ecf0f1;") # Blanco roto
-                layout_resultados.addWidget(label_item)
+                html_content += f"✔ {item['carpeta']}: {item['razon']}<br>"
+            html_content += '</div>'
 
         # Sección de Errores
         if resultados['fallidos']:
-            label_fallos = QLabel(f"ERRORES ({len(resultados['fallidos'])})")
-            label_fallos.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;") # Rojo brillante
-            layout_resultados.addWidget(label_fallos)
+            html_content += f'<h2 style="font-size: 16px; font-weight: bold; color: #e74c3c;">ERRORES ({len(resultados["fallidos"])})</h2>'
+            html_content += '<div style="color: #ecf0f1;">'
             for item in resultados['fallidos']:
-                label_item = QLabel(f"✖ {item['carpeta']}: {item['razon']}")
-                label_item.setStyleSheet("color: #ecf0f1;") # Blanco roto
-                layout_resultados.addWidget(label_item)
+                html_content += f"✖ {item['carpeta']}: {item['razon']}<br>"
+            html_content += '</div>'
+        
+        # Asegurarse de que el fondo del QTextEdit coincida con el tema oscuro
+        resultados_texto.setStyleSheet("background-color: #2c3e50; color: #ecf0f1; border: 1px solid #34495e;")
+        resultados_texto.setHtml(html_content)
+        layout.addWidget(resultados_texto)
 
         boton_cerrar = QPushButton("Cerrar")
         boton_cerrar.clicked.connect(self.accept)
