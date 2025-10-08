@@ -87,6 +87,7 @@ class VentanaPrincipal(QMainWindow):
 
         # 2. Categoría Organización
         cat_organizacion = self._add_category("ORGANIZACIÓN")
+        self._add_widget(cat_organizacion, "Mover Carpetas", "MC", "widgets.movedor_carpetas", "MovedorCarpetasWidget")
         self._add_widget(cat_organizacion, "Mover respuestas", "ORG", "widgets.organizador_respuestas", "OrganizadorRespuestasWidget")
         self._add_widget(cat_organizacion, "Mover respuestas ADRES", "PA", "widgets.organizador_respuestas_adres", "OrganizadorRespuestasAdresWidget")
         self._add_widget(cat_organizacion, "Mover XMLs", "XML", "widgets.organizador_xml", "OrganizadorXMLWidget")

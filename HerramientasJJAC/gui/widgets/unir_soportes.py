@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, 
                                QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout, QGroupBox, QTextEdit)
 from PySide6.QtCore import Qt, QThread
 from logica.workers.unir_soportes_logic import UnirSoportesWorker
+from logica.workers.mover_respuesta_raiz_logic import MoverRespuestaRaizWorker
 from gui.common.componentes_comunes import SelectorCarpeta
 
 class ResultadosDialog(QDialog):
@@ -61,6 +62,8 @@ class UnirSoportesWidget(QWidget):
         self.modo_procesamiento = "Aseguradoras"
         self.worker_thread = None
         self.worker = None
+        self.mover_worker_thread = None
+        self.mover_worker = None
 
         self.crear_widgets()
 
@@ -88,6 +91,14 @@ class UnirSoportesWidget(QWidget):
         layout_seleccion.addWidget(self.entry_carpeta)
         layout_seleccion.addWidget(boton_examinar)
         layout_principal.addWidget(group_seleccion)
+
+        # Grupo de Acciones Adicionales
+        group_acciones = QGroupBox("Acciones Adicionales")
+        layout_acciones = QHBoxLayout(group_acciones)
+        self.boton_mover_respuestas = QPushButton("Mover Respuestas a Raíz")
+        self.boton_mover_respuestas.clicked.connect(self.iniciar_movimiento_respuestas)
+        layout_acciones.addWidget(self.boton_mover_respuestas)
+        layout_principal.addWidget(group_acciones)
         
         # 3. Grupo de Modo de Operación
         group_modo = QGroupBox("2. Modo de Operación")
@@ -142,7 +153,8 @@ class UnirSoportesWidget(QWidget):
             self.boton_aseguradoras.setChecked(False)
 
     def iniciar_procesamiento(self):
-        if self.worker_thread and self.worker_thread.isRunning():
+        if (self.worker_thread and self.worker_thread.isRunning()) or \
+           (self.mover_worker_thread and self.mover_worker_thread.isRunning()):
             QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
             return
         if not self.ruta_seleccionada:
@@ -163,6 +175,29 @@ class UnirSoportesWidget(QWidget):
 
         self.worker_thread.start()
 
+    def iniciar_movimiento_respuestas(self):
+        if (self.worker_thread and self.worker_thread.isRunning()) or \
+           (self.mover_worker_thread and self.mover_worker_thread.isRunning()):
+            QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
+            return
+        if not self.ruta_seleccionada:
+            QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta primero.")
+            return
+
+        self.boton_mover_respuestas.setEnabled(False)
+        self.boton_mover_respuestas.setText("Moviendo...")
+        self.barra_progreso.setValue(0)
+
+        self.mover_worker_thread = QThread()
+        self.mover_worker = MoverRespuestaRaizWorker(self.ruta_seleccionada)
+        self.mover_worker.moveToThread(self.mover_worker_thread)
+
+        self.mover_worker.progreso_actualizado.connect(self.actualizar_progreso)
+        self.mover_worker.proceso_finalizado.connect(self.proceso_movimiento_finalizado)
+        self.mover_worker_thread.started.connect(self.mover_worker.ejecutar)
+
+        self.mover_worker_thread.start()
+
     def actualizar_progreso(self, nombre_carpeta, porcentaje):
         self.label_progreso.setText(f"Procesando: {nombre_carpeta}...")
         self.barra_progreso.setValue(int(porcentaje))
@@ -177,3 +212,23 @@ class UnirSoportesWidget(QWidget):
 
         dialogo_resultados = ResultadosDialog(resultados, self)
         dialogo_resultados.exec()
+
+    def proceso_movimiento_finalizado(self, resultados):
+        self.label_progreso.setText("Movimiento de respuestas finalizado.")
+        self.boton_mover_respuestas.setEnabled(True)
+        self.boton_mover_respuestas.setText("Mover Respuestas a Raíz")
+
+        self.mover_worker_thread.quit()
+        self.mover_worker_thread.wait()
+
+        movidos_count = len(resultados.get('movidos', []))
+        errores_count = len(resultados.get('errores', []))
+
+        titulo = "Resultado del Movimiento"
+        mensaje = f"Se movieron {movidos_count} archivos de respuesta a la carpeta raíz."
+
+        if errores_count > 0:
+            mensaje += f"\n\nSe encontraron {errores_count} errores. El más común es intentar mover un archivo que ya existe en la carpeta raíz. Revise la consola para más detalles."
+            # Aquí se podrían mostrar los errores en un diálogo más detallado si fuera necesario
+
+        QMessageBox.information(self, titulo, mensaje)

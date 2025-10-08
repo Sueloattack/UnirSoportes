@@ -51,7 +51,9 @@ class OrganizadorXMLWorker(QObject):
                 for item in os.listdir(ruta_subcarpeta):
                     if os.path.isfile(os.path.join(ruta_subcarpeta, item)):
                         if item.lower().endswith('.xml'):
-                            xml_existente = True
+                            info_xml = self._extraer_info_archivo(item)
+                            if info_xml and info_xml['tipo'] == 'XML':
+                                xml_existente = True
                         elif item.lower().endswith('.pdf'):
                             info_item = self._extraer_info_archivo(item)
                             if info_item and info_item['tipo'] == 'FACTURA':
@@ -110,6 +112,9 @@ class OrganizadorXMLWorker(QObject):
                 return {"tipo": "FACTURA", "serie": serie, "numero": numero, "codigo": f"{serie}_{numero}", "nombre_completo": nombre_archivo}
 
         elif extension == '.xml':
+            if 'facoste' in base_nombre.lower():
+                return None
+                
             match_xml = re.search(r'(COEX|FECR|FERD|FERR)([0-9]+)', base_nombre, re.IGNORECASE)
             if match_xml:
                 serie = match_xml.group(1).upper()

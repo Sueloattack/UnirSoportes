@@ -87,7 +87,9 @@ class AuditorCuentasCobroWorker(QObject):
                 'facturas_faltantes': len(missing_ids_set),
                 'carpetas_sobrantes': len(surplus_folder_numbers)
             }
-            resultados['facturas_faltantes'] = sorted([f"{missing_id.replace('240-', '').replace('-', '').upper()} | {unique_invoices_dict.get(missing_id, {}).get('status', 'N/A')}" for missing_id in missing_ids_set])
+            resultados['facturas_faltantes'] = sorted([
+                unique_invoices_dict[missing_id] for missing_id in missing_ids_set
+            ], key=lambda x: x.get('number', ''))
             resultados['carpetas_sobrantes'] = {num: folders_info_map[num] for num in sorted(list(surplus_folder_numbers)) if num in folders_info_map}
 
             self.progreso_actualizado.emit("Auditoría completada.", 100)
@@ -124,41 +126,62 @@ class AuditorCuentasCobroWorker(QObject):
         return folders_info
 
     def _find_invoices_from_words(self, doc):
-        invoice_pattern = r"240-[A-Z]+-\d+"
-        status_pattern = r"C[O12]"
+        invoice_pattern = r"(240-([A-Z]+)-\d+)"
+        status_pattern = r"(C[O0-9]|AI)"
+        date_pattern = r"\d{2}\.\d{2}\.\d{2}"
         all_invoice_occurrences = []
 
         for page_num, page in enumerate(doc):
             word_list = page.get_text("words", sort=True)
             for i, word_data in enumerate(word_list):
                 word_text = word_data[4]
-                if re.match(r"240-", word_text):
-                    potential_invoice = word_text
-                    rect = fitz.Rect(word_data[:4])
-                    invoice_line_num = word_data[6]
+                
+                # Lógica para unir facturas divididas
+                potential_invoice = word_text
+                rect = fitz.Rect(word_data[:4])
+                if re.match(r"240-", word_text) and not re.fullmatch(invoice_pattern, word_text, re.IGNORECASE) and i + 1 < len(word_list):
+                    next_word_data = word_list[i+1]
+                    # Comprobar si la siguiente palabra está en la misma línea (usando coordenadas Y)
+                    if abs(word_data[1] - next_word_data[1]) < 5:
+                        potential_invoice += next_word_data[4]
+                        rect.include_rect(fitz.Rect(next_word_data[:4]))
 
-                    if not re.fullmatch(invoice_pattern, potential_invoice, re.IGNORECASE) and i + 1 < len(word_list):
-                        next_word_data = word_list[i+1]
-                        if next_word_data[6] == invoice_line_num:
-                           potential_invoice += next_word_data[4]
-                           rect.include_rect(fitz.Rect(next_word_data[:4]))
-                    
-                    match = re.search(invoice_pattern, potential_invoice, re.IGNORECASE)
-                    if match:
-                        clean_id = match.group(0)
-                        status_text = "N/A"
-                        for j in range(i + 1, min(i + 8, len(word_list))):
-                            next_word = word_list[j]
-                            if next_word[6] == invoice_line_num and re.fullmatch(status_pattern, next_word[4], re.IGNORECASE):
-                                status_text = next_word[4]
-                                break
-                        all_invoice_occurrences.append({"id": clean_id, "number": clean_id.split('-')[-1], "status": status_text, "page_num": page_num, "rect": rect})
+                match = re.search(invoice_pattern, potential_invoice, re.IGNORECASE)
+                if match:
+                    clean_id = match.group(1)
+                    serie = match.group(2)
+                    y0, y1 = rect.y0, rect.y1
 
+                    status_text = "N/A"
+                    date_text = "N/A"
+
+                    # Buscar en toda la lista de palabras de la página
+                    for other_word_data in word_list:
+                        other_y0, other_y1 = other_word_data[1], other_word_data[3]
+                        is_on_same_line = (y0 < (other_y0 + other_y1) / 2 < y1)
+
+                        if is_on_same_line:
+                            other_word_text = other_word_data[4]
+                            if re.fullmatch(status_pattern, other_word_text, re.IGNORECASE):
+                                status_text = other_word_text
+                            elif re.fullmatch(date_pattern, other_word_text):
+                                date_text = other_word_text
+
+                    all_invoice_occurrences.append({
+                        "id": clean_id, 
+                        "serie": serie,
+                        "number": clean_id.split('-')[-1], 
+                        "status": status_text, 
+                        "date": date_text,
+                        "page_num": page_num, 
+                        "rect": rect
+                    })
+
+        # Eliminar duplicados por ID para tener una lista limpia de facturas únicas
         unique_occurrences = []
-        seen_positions = set()
+        seen_ids = set()
         for item in all_invoice_occurrences:
-            pos_signature = (item['page_num'], int(item['rect'].x0), int(item['rect'].y0))
-            if pos_signature not in seen_positions:
+            if item['id'] not in seen_ids:
                 unique_occurrences.append(item)
-                seen_positions.add(pos_signature)
+                seen_ids.add(item['id'])
         return unique_occurrences

@@ -95,33 +95,28 @@ class RenombradorWidget(QWidget):
         self.worker = RenombradorWorker(ruta_carpeta, modo)
         self.worker.moveToThread(self.hilo_trabajo)
 
-        self.worker.progreso_actualizado.connect(self.actualizar_progreso)
+        self.worker.progreso_actualizado.connect(self.actualizar_log)
         self.worker.proceso_finalizado.connect(self.finalizar_proceso)
         self.hilo_trabajo.started.connect(self.worker.ejecutar)
         
         self.hilo_trabajo.start()
 
-    def actualizar_progreso(self, nombre_carpeta, porcentaje):
-        self.log_browser.append(f"Procesando: {nombre_carpeta}...")
+    def actualizar_log(self, mensaje):
+        self.log_browser.append(mensaje)
 
     def finalizar_proceso(self, resultados):
         num_exitosos = len(resultados.get('exitosos', []))
         num_fallidos = len(resultados.get('fallidos', []))
 
         self.log_browser.append("<br><b>--- Proceso Finalizado ---</b>")
-        resumen = f"<b>Resumen: <font color='{self.color_exito}'>{num_exitosos} exitosos</font>, <font color='{self.color_error}'>{num_fallidos} fallidos</font></b>"
+        resumen = f"<b>Resumen: <font color='{self.color_exito}'>{num_exitosos} exitosos</font>, <font color='{self.color_error}'>{num_fallidos} fallidos/advertencias</font></b>"
         self.log_browser.append(resumen)
         self.log_browser.append("<br>")
 
-        if num_exitosos > 0:
-            self.log_browser.append(f"<font color='{self.color_exito}'><b>Detalles exitosos:</b></font>")
-            for item in resultados['exitosos']:
-                self.log_browser.append(f"- Carpeta: {item['carpeta']}, Detalle: {item['razon']}")
-        
         if num_fallidos > 0:
             self.log_browser.append(f"<font color='{self.color_error}'><b>Detalles de fallos o advertencias:</b></font>")
             for item in resultados['fallidos']:
-                self.log_browser.append(f"- Carpeta: {item['carpeta']}, Razón: {item['razon']}")
+                self.log_browser.append(f"- {item['razon']} (Archivo: {item['archivo']})")
 
         self.set_controles_habilitados(True)
         if self.hilo_trabajo:
