@@ -14,11 +14,12 @@ class MovedorCarpetasWorker(QObject):
     log_generado = Signal(str)
     proceso_finalizado = Signal()
 
-    def __init__(self, numeros_factura: list[str], dir_origen: str, dir_destino: str):
+    def __init__(self, numeros_factura: list[str], dir_origen: str, dir_destino: str, accion: str = 'mover'):
         super().__init__()
         self.numeros_factura = numeros_factura
         self.dir_origen = dir_origen
         self.dir_destino = dir_destino
+        self.accion = accion
         self.esta_cancelado = False
         self.exitos_lista = []
         self.fallos_lista = []
@@ -27,7 +28,7 @@ class MovedorCarpetasWorker(QObject):
         self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
     def ejecutar(self):
-        self._log(f"<b>Iniciando proceso para mover carpetas...</b>", COLOR_INFO)
+        self._log(f"<b>Iniciando proceso para {self.accion} carpetas...</b>", COLOR_INFO)
         self._log(f"Directorio de Origen: {self.dir_origen}")
         self._log(f"Directorio de Destino: {self.dir_destino}")
 
@@ -62,13 +63,17 @@ class MovedorCarpetasWorker(QObject):
                             self._log(f"-> AVISO: La carpeta ya existe en el destino. Se omitirá.", COLOR_WARNING)
                             self.fallos_lista.append(f"{num_factura} (ya existe en destino)")
                         else:
-                            shutil.move(ruta_origen_completa, ruta_destino_completa)
-                            self._log(f"-> Movida exitosamente a: <b>{self.dir_destino}</b>", COLOR_SUCCESS)
+                            if self.accion == 'mover':
+                                shutil.move(ruta_origen_completa, ruta_destino_completa)
+                                self._log(f"-> Movida exitosamente a: <b>{self.dir_destino}</b>", COLOR_SUCCESS)
+                            else: # accion == 'copiar'
+                                shutil.copytree(ruta_origen_completa, ruta_destino_completa)
+                                self._log(f"-> Copiada exitosamente a: <b>{self.dir_destino}</b>", COLOR_SUCCESS)
                             self.exitos_lista.append(f"{num_factura} -> {carpeta_encontrada}")
 
                     except Exception as e:
-                        self._log(f"-> ERROR al mover la carpeta '{carpeta_encontrada}': {e}", COLOR_ERROR)
-                        self.fallos_lista.append(f"{num_factura} (error al mover)")
+                        self._log(f"-> ERROR al {self.accion} la carpeta '{carpeta_encontrada}': {e}", COLOR_ERROR)
+                        self.fallos_lista.append(f"{num_factura} (error al {self.accion})")
                 else:
                     self._log(f"-> No se encontró ninguna carpeta que comience con '{num_factura}'.", COLOR_WARNING)
                     self.fallos_lista.append(f"{num_factura} (no encontrada)")
@@ -78,11 +83,11 @@ class MovedorCarpetasWorker(QObject):
         
         # --- RESUMEN FINAL ---
         self._log(f"<br><b>--- RESUMEN ---</b>", COLOR_INFO)
-        self._log(f"<b>Carpetas movidas exitosamente ({len(self.exitos_lista)}):</b>", COLOR_SUCCESS)
+        self._log(f"<b>Carpetas procesadas exitosamente ({len(self.exitos_lista)}):</b>", COLOR_SUCCESS)
         for exito in self.exitos_lista:
             self._log(f"- {exito}", COLOR_SUCCESS)
         
-        self._log(f"<br><b>Carpetas no movidas o con error ({len(self.fallos_lista)}):</b>", COLOR_WARNING)
+        self._log(f"<br><b>Carpetas no procesadas o con error ({len(self.fallos_lista)}):</b>", COLOR_WARNING)
         for fallo in self.fallos_lista:
             self._log(f"- {fallo}", COLOR_WARNING)
 

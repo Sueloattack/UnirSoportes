@@ -1,11 +1,13 @@
 # gui/widget_auditor_facturas.py
 import sys
+import os
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, QPushButton, 
                                QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, 
                                QGridLayout, QTextEdit, QHBoxLayout)
 from PySide6.QtCore import QThread, Qt
 
 from logica.workers.auditor_cuentas_cobro_logic import AuditorCuentasCobroWorker
+from logica.workers.accion_aceptadas_logic import AccionAceptadasWorker
 
 try:
     import openpyxl
@@ -20,6 +22,7 @@ class ResultadosAuditorDialog(QDialog):
         self.setMinimumSize(800, 600)
         self.resultados = resultados
         self.worker = worker
+        self.accion_ai_thread = None # Thread para la nueva acción
 
         # Layout principal
         layout = QVBoxLayout(self)
@@ -119,6 +122,33 @@ class ResultadosAuditorDialog(QDialog):
                 layout_resultados.addWidget(label_item)
                 self.labels_sobrantes[num] = label_item
 
+        # --- NUEVO: Sección de Acciones para Facturas AI ---
+        self.facturas_ai_data = self.resultados.get('facturas_AI', [])
+        if self.facturas_ai_data:
+            self.grupo_acciones_ai = QGroupBox(f"Acciones para Facturas Aceptadas (AI) - {len(self.facturas_ai_data)} encontradas")
+            self.grupo_acciones_ai.setStyleSheet("font-size: 14px; font-weight: bold;")
+            layout_acciones_ai = QVBoxLayout(self.grupo_acciones_ai)
+
+            layout_botones_ai = QHBoxLayout()
+            self.boton_mover_ai = QPushButton("Mover a ACEPTADAS")
+            self.boton_mover_ai.clicked.connect(lambda: self.iniciar_accion_ai('mover'))
+            layout_botones_ai.addWidget(self.boton_mover_ai)
+
+            self.boton_copiar_ai = QPushButton("Copiar a ACEPTADAS")
+            self.boton_copiar_ai.clicked.connect(lambda: self.iniciar_accion_ai('copiar'))
+            layout_botones_ai.addWidget(self.boton_copiar_ai)
+            
+            layout_acciones_ai.addLayout(layout_botones_ai)
+
+            self.log_ai_viewer = QTextEdit()
+            self.log_ai_viewer.setReadOnly(True)
+            self.log_ai_viewer.setPlaceholderText("Los resultados de la operación de mover/copiar aparecerán aquí...")
+            self.log_ai_viewer.setMaximumHeight(150) # Altura limitada para no ocupar mucho espacio
+            layout_acciones_ai.addWidget(self.log_ai_viewer)
+
+            layout_resultados.addWidget(self.grupo_acciones_ai)
+        # -----------------------------------------------------
+
         layout_resultados.addStretch()
 
         # --- Botones de Acción ---
@@ -144,6 +174,39 @@ class ResultadosAuditorDialog(QDialog):
         layout_botones.addWidget(boton_cerrar)
         
         layout.addLayout(layout_botones)
+
+    def iniciar_accion_ai(self, accion: str):
+        if self.accion_ai_thread and self.accion_ai_thread.isRunning():
+            QMessageBox.warning(self, "Proceso en curso", "Espere a que termine la operación actual.")
+            return
+
+        # La carpeta raíz es la que contiene las carpetas de facturas
+        carpeta_raiz = self.worker.folders_path 
+        dir_destino = os.path.join(carpeta_raiz, "ACEPTADAS")
+
+        self.log_ai_viewer.clear()
+        self.boton_mover_ai.setEnabled(False)
+        self.boton_copiar_ai.setEnabled(False)
+
+        self.accion_ai_thread = QThread()
+        self.accion_worker = AccionAceptadasWorker(self.facturas_ai_data, dir_destino, accion)
+        self.accion_worker.moveToThread(self.accion_ai_thread)
+
+        self.accion_worker.log_generado.connect(self.actualizar_log_ai)
+        self.accion_worker.proceso_finalizado.connect(self.finalizar_accion_ai)
+        self.accion_ai_thread.started.connect(self.accion_worker.ejecutar)
+
+        self.accion_ai_thread.start()
+
+    def actualizar_log_ai(self, mensaje):
+        self.log_ai_viewer.append(mensaje)
+
+    def finalizar_accion_ai(self):
+        self.boton_mover_ai.setEnabled(True)
+        self.boton_copiar_ai.setEnabled(True)
+        self.accion_ai_thread.quit()
+        self.accion_ai_thread.wait()
+        QMessageBox.information(self, "Proceso Finalizado", "La operación sobre las carpetas AI ha terminado.")
 
     def exportar_a_excel(self):
         if not OPENPYXL_DISPONIBLE:

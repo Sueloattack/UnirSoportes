@@ -92,6 +92,19 @@ class AuditorCuentasCobroWorker(QObject):
             ], key=lambda x: x.get('number', ''))
             resultados['carpetas_sobrantes'] = {num: folders_info_map[num] for num in sorted(list(surplus_folder_numbers)) if num in folders_info_map}
 
+            # --- NUEVO: Identificar carpetas de facturas con estado AI ---
+            facturas_ai_con_carpeta = []
+            for item in unique_invoices_dict.values():
+                if item.get('status', '').upper() == 'AI':
+                    numero_factura = item.get('number')
+                    if numero_factura in folders_info_map:
+                        nombre_carpeta = folders_info_map[numero_factura]
+                        ruta_completa = os.path.join(self.folders_path, nombre_carpeta)
+                        facturas_ai_con_carpeta.append(ruta_completa)
+            
+            resultados['facturas_AI'] = facturas_ai_con_carpeta
+            # ----------------------------------------------------------
+
             self.progreso_actualizado.emit("Auditoría completada.", 100)
 
         except Exception as e:

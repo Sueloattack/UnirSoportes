@@ -55,11 +55,20 @@ class MovedorCarpetasWidget(QWidget):
         
         layout_principal.addWidget(group_inputs)
 
-        self.btn_iniciar = QPushButton("Iniciar Proceso de Mover")
-        self.btn_iniciar.setObjectName("BotonPrincipal")
-        self.btn_iniciar.setFixedHeight(40)
-        self.btn_iniciar.clicked.connect(self.iniciar_proceso)
-        layout_principal.addWidget(self.btn_iniciar)
+        layout_botones = QHBoxLayout()
+        self.btn_iniciar_mover = QPushButton("Iniciar Proceso de Mover")
+        self.btn_iniciar_mover.setObjectName("BotonPrincipal")
+        self.btn_iniciar_mover.setFixedHeight(40)
+        self.btn_iniciar_mover.clicked.connect(lambda: self.iniciar_proceso('mover'))
+        layout_botones.addWidget(self.btn_iniciar_mover)
+
+        self.btn_iniciar_copiar = QPushButton("Iniciar Proceso de Copiar")
+        self.btn_iniciar_copiar.setObjectName("BotonPrincipal")
+        self.btn_iniciar_copiar.setFixedHeight(40)
+        self.btn_iniciar_copiar.clicked.connect(lambda: self.iniciar_proceso('copiar'))
+        layout_botones.addWidget(self.btn_iniciar_copiar)
+        
+        layout_principal.addLayout(layout_botones)
 
         group_results = QGroupBox("2. Resultados")
         layout_results = QVBoxLayout(group_results)
@@ -72,7 +81,7 @@ class MovedorCarpetasWidget(QWidget):
         if directory:
             line_edit_widget.setText(directory)
             
-    def iniciar_proceso(self):
+    def iniciar_proceso(self, accion: str):
         numeros_factura_raw = self.editor_facturas.toPlainText().strip()
         dir_origen = self.line_origen.text()
         dir_destino = self.line_destino.text()
@@ -87,13 +96,15 @@ class MovedorCarpetasWidget(QWidget):
 
         numeros_factura = [line.strip() for line in numeros_factura_raw.splitlines() if line.strip()]
 
-        self.btn_iniciar.setText("Procesando...")
-        self.btn_iniciar.setEnabled(False)
+        self.btn_iniciar_mover.setText("Procesando...")
+        self.btn_iniciar_copiar.setText("Procesando...")
+        self.btn_iniciar_mover.setEnabled(False)
+        self.btn_iniciar_copiar.setEnabled(False)
         self.log_viewer.clear()
-        self.log_viewer.append("Iniciando proceso...")
+        self.log_viewer.append(f"Iniciando proceso de {accion}...")
         
         self.thread = QThread()
-        self.worker = MovedorCarpetasWorker(numeros_factura, dir_origen, dir_destino)
+        self.worker = MovedorCarpetasWorker(numeros_factura, dir_origen, dir_destino, accion)
         self.worker.moveToThread(self.thread)
         
         self.worker.log_generado.connect(self.actualizar_log)
@@ -107,10 +118,12 @@ class MovedorCarpetasWidget(QWidget):
 
     def finalizar_proceso(self):
         self.log_viewer.append("<b>Proceso finalizado.</b>")
-        self.btn_iniciar.setText("Iniciar Proceso de Mover")
-        self.btn_iniciar.setEnabled(True)
+        self.btn_iniciar_mover.setText("Iniciar Proceso de Mover")
+        self.btn_iniciar_copiar.setText("Iniciar Proceso de Copiar")
+        self.btn_iniciar_mover.setEnabled(True)
+        self.btn_iniciar_copiar.setEnabled(True)
         self.thread.quit()
         self.thread.wait()
         self.thread = None
         self.worker = None
-        QMessageBox.information(self, "Proceso Finalizado", "El proceso de mover carpetas ha terminado.")
+        QMessageBox.information(self, "Proceso Finalizado", "El proceso ha terminado.")

@@ -185,6 +185,7 @@ class BuscadorSoportesNuevosWorker(QObject):
 
     def _copiar_soportes_desde_carpeta(self, ruta_origen: str, ruta_destino: str, factura_info: str):
         archivos_copiados = 0
+        extensiones_permitidas = ('.pdf', '.png', '.jpg', '.jpeg')
         try:
             if not os.path.isdir(ruta_destino):
                 os.makedirs(ruta_destino)
@@ -193,6 +194,12 @@ class BuscadorSoportesNuevosWorker(QObject):
             for nombre_item in os.listdir(ruta_origen):
                 ruta_completa_origen = os.path.join(ruta_origen, nombre_item)
                 if os.path.isfile(ruta_completa_origen):
+                    # --- FILTRO DE EXTENSIONES ---
+                    if not nombre_item.lower().endswith(extensiones_permitidas):
+                        self._log(f"-> Omitido (formato no permitido): {nombre_item}", "gray")
+                        continue
+                    # ---------------------------
+
                     ruta_completa_destino = os.path.join(ruta_destino, nombre_item)
                     if not os.path.exists(ruta_completa_destino):
                         shutil.copy2(ruta_completa_origen, ruta_completa_destino)
@@ -203,7 +210,7 @@ class BuscadorSoportesNuevosWorker(QObject):
             if archivos_copiados > 0:
                 self._log(f"-> Se copiaron {archivos_copiados} archivos de la carpeta.", COLOR_SUCCESS)
             else:
-                self._log("-> No se copiaron nuevos archivos de la carpeta (o ya existían).")
+                self._log("-> No se copiaron nuevos archivos de la carpeta (o ya existían).", COLOR_DEFAULT)
         except Exception as e:
             self._log(f"-> ❌ ERROR al copiar de carpeta para '{factura_info}': {e}", COLOR_ERROR)
 
