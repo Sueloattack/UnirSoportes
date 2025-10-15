@@ -93,22 +93,37 @@ class BuscadorSoportesNuevosWorker(QObject):
             self._log(f"-> Serie: '{serie}', Número: '{numero_factura}'")
 
             rutas_encontradas = indice_carpetas.get(numero_factura)
-            
+
             if not rutas_encontradas:
                 self._log(f"-> No se encontró carpeta con el número '{numero_factura}'. Pasando a Estrategia B.", COLOR_WARNING)
                 facturas_no_encontradas.append(factura_limpia)
                 continue
-            
-            carpeta_encontrada = rutas_encontradas[0]
-            if len(rutas_encontradas) > 1:
-                self._log(f"-> AVISO: Se encontraron {len(rutas_encontradas)} carpetas para '{numero_factura}'. Se usará la más reciente.", COLOR_WARNING)
-                carpeta_encontrada = max(rutas_encontradas, key=os.path.getmtime)
 
-            archivos_en_carpeta = os.listdir(carpeta_encontrada)
-            if not any(serie.lower() in nombre_archivo.lower() for nombre_archivo in archivos_en_carpeta):
-                self._log(f"-> La serie '{serie}' no fue encontrada en los archivos de la carpeta. Pasando a Estrategia B.", COLOR_WARNING)
+            # Filtrar solo carpetas válidas (con PDFs/imágenes y que contengan la serie)
+            carpetas_validas = []
+            for ruta in rutas_encontradas:
+                try:
+                    archivos_en_carpeta = [f for f in os.listdir(ruta) if os.path.isfile(os.path.join(ruta, f))]
+                    contiene_serie = any(serie.lower() in nombre.lower() for nombre in archivos_en_carpeta)
+                    
+                    if contiene_serie and self._es_carpeta_valida(ruta):
+                        carpetas_validas.append(ruta)
+                    elif not contiene_serie:
+                        self._log(f"-> Carpeta '{os.path.basename(ruta)}' descartada: no contiene la serie '{serie}'.", "gray")
+
+                except Exception as e:
+                    self._log(f"-> Error procesando carpeta '{os.path.basename(ruta)}': {e}", COLOR_ERROR)
+
+
+            if not carpetas_validas:
+                self._log(f"-> Se encontraron {len(rutas_encontradas)} carpetas para '{numero_factura}', pero ninguna cumplió los criterios (serie y contenido válido). Pasando a Estrategia B.", COLOR_WARNING)
                 facturas_no_encontradas.append(factura_limpia)
                 continue
+
+            # Seleccionar la carpeta más reciente de las válidas
+            carpeta_encontrada = max(carpetas_validas, key=os.path.getmtime)
+            if len(carpetas_validas) > 1:
+                self._log(f"-> AVISO: Se encontraron {len(carpetas_validas)} carpetas válidas para '{numero_factura}'. Se usará la más reciente: {os.path.basename(carpeta_encontrada)}", COLOR_WARNING)
 
             self._log(f"-> Soportes encontrados en: <b>{carpeta_encontrada}</b>", COLOR_SUCCESS)
             self._log(f"-> Serie '{serie}' verificada. Copiando soportes.", COLOR_SUCCESS)
@@ -163,6 +178,29 @@ class BuscadorSoportesNuevosWorker(QObject):
 
             self._copiar_soporte_desde_archivo(archivo_encontrado, ruta_destino_especifica, factura_limpia)
             self.exitos_lista.append(f"{factura_limpia} (por archivo)")
+
+    def _es_carpeta_valida(self, ruta_carpeta: str) -> bool:
+        """Verifica si una carpeta contiene solo archivos con extensiones permitidas."""
+        extensiones_permitidas = ('.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')
+        try:
+            # Lista solo los archivos, ignorando subdirectorios
+            archivos = [f for f in os.listdir(ruta_carpeta) if os.path.isfile(os.path.join(ruta_carpeta, f))]
+            
+            # Si no hay archivos, no es válida para nuestro propósito
+            if not archivos:
+                self._log(f"-> Carpeta '{os.path.basename(ruta_carpeta)}' descartada por estar vacía.", "gray")
+                return False
+
+            # Verifica que todos los archivos tengan una extensión permitida
+            for nombre_archivo in archivos:
+                if not nombre_archivo.lower().endswith(extensiones_permitidas):
+                    self._log(f"-> Carpeta '{os.path.basename(ruta_carpeta)}' descartada por contenido no válido: {nombre_archivo}", "gray")
+                    return False
+            
+            return True # Todos los archivos son válidos
+        except Exception as e:
+            self._log(f"-> Error al validar carpeta '{os.path.basename(ruta_carpeta)}': {e}", COLOR_ERROR)
+            return False
 
     def _encontrar_subcarpeta_destino(self, factura_buscada: str) -> str:
         match = re.match(r'([a-zA-Z]+)(\d+)', factura_buscada)

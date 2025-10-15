@@ -100,27 +100,27 @@ class OrganizadorXMLWidget(QWidget):
         group_seleccion = QGroupBox("1. Selección de Carpetas")
         layout_seleccion = QVBoxLayout(group_seleccion)
         layout_seleccion.setSpacing(10)
+        
+        selector_xmls_layout = QHBoxLayout()
+        self.entry_xmls = QLineEdit()
+        self.entry_xmls.setPlaceholderText("Seleccione la carpeta de origen, aqui estan los archivos XML sueltos.")
+        self.entry_xmls.setReadOnly(True)
+        boton_examinar_xmls = QPushButton("Seleccionar...")
+        boton_examinar_xmls.clicked.connect(self.seleccionar_carpeta_xmls)
+        selector_xmls_layout.addWidget(self.entry_xmls)
+        selector_xmls_layout.addWidget(boton_examinar_xmls)
 
         selector_raiz_layout = QHBoxLayout()
         self.entry_raiz = QLineEdit()
-        self.entry_raiz.setPlaceholderText("Seleccione la carpeta con subcarpetas de las FACTURAS...")
+        self.entry_raiz.setPlaceholderText("Seleccione la CARPETA de destino. Esta contiene las CARPETAS con la información de las glosas.")
         self.entry_raiz.setReadOnly(True)
         boton_examinar_raiz = QPushButton("Seleccionar...")
         boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
         selector_raiz_layout.addWidget(self.entry_raiz)
         selector_raiz_layout.addWidget(boton_examinar_raiz)
         
-        selector_xmls_layout = QHBoxLayout()
-        self.entry_xmls = QLineEdit()
-        self.entry_xmls.setPlaceholderText("Seleccione la carpeta con los archivos XML sueltos...")
-        self.entry_xmls.setReadOnly(True)
-        boton_examinar_xmls = QPushButton("Seleccionar...")
-        boton_examinar_xmls.clicked.connect(self.seleccionar_carpeta_xmls)
-        selector_xmls_layout.addWidget(self.entry_xmls)
-        selector_xmls_layout.addWidget(boton_examinar_xmls)
-        
-        layout_seleccion.addLayout(selector_raiz_layout)
         layout_seleccion.addLayout(selector_xmls_layout)
+        layout_seleccion.addLayout(selector_raiz_layout)
         layout_principal.addWidget(group_seleccion)
 
         # 3. Grupo de Acción a Realizar

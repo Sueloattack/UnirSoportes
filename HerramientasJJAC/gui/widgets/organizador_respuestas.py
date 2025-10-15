@@ -82,26 +82,26 @@ class OrganizadorRespuestasWidget(QWidget):
         layout_seleccion = QVBoxLayout(group_seleccion)
         layout_seleccion.setSpacing(10)
 
-        selector_raiz_layout = QHBoxLayout()
-        self.entry_raiz = QLineEdit()
-        self.entry_raiz.setPlaceholderText("Seleccione la carpeta raíz (con subcarpetas de destino)...")
-        self.entry_raiz.setReadOnly(True)
-        boton_examinar_raiz = QPushButton("Seleccionar...")
-        boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
-        selector_raiz_layout.addWidget(self.entry_raiz)
-        selector_raiz_layout.addWidget(boton_examinar_raiz)
-        
         selector_respuestas_layout = QHBoxLayout()
         self.entry_respuestas = QLineEdit()
-        self.entry_respuestas.setPlaceholderText("Seleccione la carpeta con respuestas sueltas (PDFs)...")
+        self.entry_respuestas.setPlaceholderText("Seleccione la carpeta de origen. Esta carpeta tiene todas las respuestas glosas (PDFs).")
         self.entry_respuestas.setReadOnly(True)
         boton_examinar_respuestas = QPushButton("Seleccionar...")
         boton_examinar_respuestas.clicked.connect(self.seleccionar_carpeta_respuestas)
         selector_respuestas_layout.addWidget(self.entry_respuestas)
         selector_respuestas_layout.addWidget(boton_examinar_respuestas)
-        
+
+        selector_raiz_layout = QHBoxLayout()
+        self.entry_raiz = QLineEdit()
+        self.entry_raiz.setPlaceholderText("Seleccione la CARPETA de destino. Esta contiene las CARPETAS con las cartas glosas bajadas de trazabilidad.")
+        self.entry_raiz.setReadOnly(True)
+        boton_examinar_raiz = QPushButton("Seleccionar...")
+        boton_examinar_raiz.clicked.connect(self.seleccionar_carpeta_raiz)
+        selector_raiz_layout.addWidget(self.entry_raiz)
+        selector_raiz_layout.addWidget(boton_examinar_raiz)
+
+        layout_seleccion.addLayout(selector_respuestas_layout)        
         layout_seleccion.addLayout(selector_raiz_layout)
-        layout_seleccion.addLayout(selector_respuestas_layout)
         layout_principal.addWidget(group_seleccion)
         
         # --- SECCIÓN CORREGIDA CON BOTONES QUE SE EXPANDEN ---

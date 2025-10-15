@@ -305,7 +305,7 @@ class AuditorCuentasCobroWidget(QWidget):
 
         selector_carpetas_layout = QHBoxLayout()
         self.entry_carpetas = QLineEdit()
-        self.entry_carpetas.setPlaceholderText("Seleccione la carpeta que contiene las subcarpetas con las facturas...")
+        self.entry_carpetas.setPlaceholderText("Seleccione la CARPETA que contiene las CARPETAS con la información de las glosas...")
         self.entry_carpetas.setReadOnly(True)
         boton_examinar_carpetas = QPushButton("Seleccionar...")
         boton_examinar_carpetas.clicked.connect(self.seleccionar_carpetas)

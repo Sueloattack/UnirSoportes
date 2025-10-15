@@ -34,7 +34,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
         
         selector_busqueda_layout = QHBoxLayout()
         self.line_busqueda = QLineEdit()
-        self.line_busqueda.setPlaceholderText("Seleccione la carpeta de búsqueda...")
+        self.line_busqueda.setPlaceholderText("Seleccione la carpeta de búsqueda, preferiblemente la carpeta de la entidad en radicacion.")
         self.line_busqueda.setReadOnly(True)
         btn_busqueda = QPushButton("Seleccionar...")
         btn_busqueda.clicked.connect(lambda: self._seleccionar_carpeta(self.line_busqueda))
@@ -44,7 +44,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
         
         selector_destino_layout = QHBoxLayout()
         self.line_destino = QLineEdit()
-        self.line_destino.setPlaceholderText("Selecciona la carpeta de destino para los soportes...")
+        self.line_destino.setPlaceholderText("Selecciona la carpeta de destino para los soportes. ")
         self.line_destino.setReadOnly(True)
         btn_destino = QPushButton("Seleccionar...")
         btn_destino.clicked.connect(lambda: self._seleccionar_carpeta(self.line_destino))

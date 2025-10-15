@@ -7,6 +7,22 @@ from PySide6.QtGui import QIcon
 
 from recursos.utils import resource_path
 
+# --- Imports estáticos para PyInstaller ---
+# Estos imports le indican a PyInstaller qué módulos debe incluir en el ejecutable.
+from gui.widgets.unir_soportes import UnirSoportesWidget
+from gui.widgets.auditor_cuentas_cobro import AuditorCuentasCobroWidget
+from gui.widgets.renombrador import RenombradorWidget
+from gui.widgets.movedor_carpetas import MovedorCarpetasWidget
+from gui.widgets.organizador_respuestas import OrganizadorRespuestasWidget
+from gui.widgets.organizador_respuestas_adres import OrganizadorRespuestasAdresWidget
+from gui.widgets.organizador_xml import OrganizadorXMLWidget
+from gui.widgets.reorganizador_sedes import ReorganizadorSedesWidget
+from gui.widgets.traer_soportes_adres import TraerSoportesAdresWidget
+from gui.widgets.buscador_soportes_nuevos import BuscadorSoportesNuevosWidget
+from gui.widgets.buscador_soportes_ratificados import BuscadorSoportesRatificadosWidget
+from gui.widgets.buscador_carpetas_ratificadas import BuscadorCarpetasRatificadasWidget
+from gui.widgets.panel_ayuda import PanelAyudaWidget
+
 
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
