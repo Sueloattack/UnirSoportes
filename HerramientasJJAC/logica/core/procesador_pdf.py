@@ -1,6 +1,7 @@
 # logica/procesador_pdf.py
 import pypdf
 import os
+import re
 
 def _obtener_texto_de_pagina(pagina):
     """Extrae y limpia el texto de una página PDF."""
@@ -67,6 +68,59 @@ def fusionar_pdfs_en_destino(ruta_pdf_destino, rutas_pdf_fuentes):
 
     with open(ruta_pdf_destino, 'wb') as archivo_salida:
         escritor.write(archivo_salida)
+
+def unir_pdfs(rutas_pdf_fuentes, ruta_pdf_salida):
+    """ Une lista de PDFs """
+    escritor = pypdf.PdfWriter()
+
+    for ruta in rutas_pdf_fuentes:
+        if os.path.exists(ruta):
+            try:
+                lector_fuente = pypdf.PdfReader(ruta)
+                for pagina in lector_fuente.pages:
+                    escritor.add_page(pagina)
+            except Exception as e:
+                print(f"Error leyendo {ruta}: {e}")
+                continue
+
+    with open(ruta_pdf_salida, 'wb') as archivo_salida:
+        escritor.write(archivo_salida)
+
+def extraer_codigo_factura(ruta_pdf_liq):
+    """
+    Busca cualquier código que empiece con LETRAS (mínimo 2) seguidas inmediatamente
+    o separadas por un espacio de NÚMEROS.
+    Ignora la palabra 'No.' porque causa errores en las tablas.
+    Ejemplos que atrapa: FECR335962, COEX123456, FC12345
+    Ejemplos que ignora: 841443 (Siniestro), 12345 (Cédula)
+    """
+    try:
+        with open(ruta_pdf_liq, 'rb') as f:
+            lector = pypdf.PdfReader(f)
+            # Intentamos en la primera página
+            if len(lector.pages) > 0:
+                texto_pagina = lector.pages[0].extract_text()
+                
+                # 1. Búsqueda EXACTA (Letras pegadas a números: FECR12345)
+                # \b        -> Inicio de palabra
+                # [A-Z]{2,} -> 2 o más letras mayúsculas (FECR, COEX, AB)
+                # \d{3,}    -> 3 o más números (para evitar códigos cortos como A1)
+                # \b        -> Fin de palabra
+                match_exacto = re.search(r'\b([A-Z]{2,}\d{3,})\b', texto_pagina)
+                
+                if match_exacto:
+                    return match_exacto.group(1)
+
+                # 2. Búsqueda ALTERNATIVA (Si pypdf puso un espacio: FECR 12345)
+                match_espacio = re.search(r'\b([A-Z]{2,})\s+(\d{4,})\b', texto_pagina)
+                if match_espacio:
+                    # Unimos lo que encontró (ej: "FECR" + "335962")
+                    return f"{match_espacio.group(1)}{match_espacio.group(2)}"
+
+    except Exception as e:
+        print(f"Error extrayendo código factura: {e}")
+    
+    return None
 
 def obtener_cantidad_paginas_pdf(ruta_pdf):
     """Devuelve el número de páginas de un archivo PDF."""

@@ -3,3 +3,4 @@ pypdf
 PyMuPDF
 pandas
 openpyxl
+pyzipper

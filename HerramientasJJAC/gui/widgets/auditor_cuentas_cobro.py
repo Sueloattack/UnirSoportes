@@ -229,11 +229,18 @@ class ResultadosAuditorDialog(QDialog):
 
             for item in self.facturas_faltantes_data:
                 serie = item.get('serie', '')
-                numero = item.get('number', '')
-                factura_completa = f"{serie}{numero}"
+                numero_str = item.get('number', '')
+                
+                # Intentar convertir el número a entero
+                try:
+                    numero_final = int(numero_str)
+                except (ValueError, TypeError):
+                    numero_final = numero_str # Dejar como texto si no se puede convertir
+
+                factura_completa = f"{serie}{numero_str}"
                 row = [
                     serie,
-                    numero,
+                    numero_final,
                     factura_completa,
                     item.get('date', 'N/A'),
                     item.get('status', 'N/A')

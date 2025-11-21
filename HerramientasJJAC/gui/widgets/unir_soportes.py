@@ -2,10 +2,39 @@
 import sys
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFrame, QLabel, QLineEdit, QPushButton, QHBoxLayout, 
                                QFileDialog, QMessageBox, QProgressBar, QDialog, QScrollArea, QGridLayout, QGroupBox, QTextEdit)
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, Signal, QObject
 from logica.workers.unir_soportes_logic import UnirSoportesWorker
 from logica.workers.mover_respuesta_raiz_logic import MoverRespuestaRaizWorker
+from logica.workers.unir_axa_calixto_logic import unir_axa_calixto_logic
 from gui.common.componentes_comunes import SelectorCarpeta
+
+# Worker para la nueva funcionalidad de AXA Calixto
+class UnirAxaCalixtoWorker(QObject):
+    progreso_actualizado = Signal(str, int)
+    proceso_finalizado = Signal(str)
+    error_ocurrido = Signal(str)
+
+    def __init__(self, dir_origen, dir_destino):
+        super().__init__()
+        self.dir_origen = dir_origen
+        self.dir_destino = dir_destino
+        self.running = True
+
+    def ejecutar(self):
+        try:
+            # Conectamos las señales del worker a los métodos de la lógica
+            unir_axa_calixto_logic(
+                self.dir_origen,
+                self.dir_destino,
+                self.progreso_actualizado,
+                self.proceso_finalizado,
+                self.error_ocurrido
+            )
+        except Exception as e:
+            self.error_ocurrido.emit(str(e))
+
+    def stop(self):
+        self.running = False
 
 class ResultadosDialog(QDialog):
     """
@@ -28,7 +57,7 @@ class ResultadosDialog(QDialog):
         html_content = ""
 
         # Sección de Éxitos
-        if resultados['exitosos']:
+        if resultados.get('exitosos'):
             html_content += f'<h2 style="font-size: 16px; font-weight: bold; color: #2ecc71;">ÉXITO ({len(resultados["exitosos"])})</h2>'
             html_content += '<div style="color: #ecf0f1;">'
             for item in resultados['exitosos']:
@@ -36,14 +65,13 @@ class ResultadosDialog(QDialog):
             html_content += '</div>'
 
         # Sección de Errores
-        if resultados['fallidos']:
+        if resultados.get('fallidos'):
             html_content += f'<h2 style="font-size: 16px; font-weight: bold; color: #e74c3c;">ERRORES ({len(resultados["fallidos"])})</h2>'
             html_content += '<div style="color: #ecf0f1;">'
             for item in resultados['fallidos']:
                 html_content += f"✖ {item['carpeta']}: {item['razon']}<br>"
             html_content += '</div>'
         
-        # Asegurarse de que el fondo del QTextEdit coincida con el tema oscuro
         resultados_texto.setStyleSheet("background-color: #2c3e50; color: #ecf0f1; border: 1px solid #34495e;")
         resultados_texto.setHtml(html_content)
         layout.addWidget(resultados_texto)
@@ -58,12 +86,13 @@ class UnirSoportesWidget(QWidget):
     """
     def __init__(self):
         super().__init__()
-        self.ruta_seleccionada = ""
-        self.modo_procesamiento = "Aseguradoras"
         self.worker_thread = None
         self.worker = None
         self.mover_worker_thread = None
         self.mover_worker = None
+        self.axa_worker_thread = None
+        self.axa_worker = None
+        self.modo_procesamiento = "Aseguradoras"
 
         self.crear_widgets()
 
@@ -72,60 +101,51 @@ class UnirSoportesWidget(QWidget):
         layout_principal.setContentsMargins(20, 20, 20, 20)
         layout_principal.setSpacing(15)
 
-        # 1. Título principal de la pestaña
-        label_titulo = QLabel("Unir Soportes para radicar")
+        label_titulo = QLabel("Unir Soportes y Acciones Adicionales")
         label_titulo.setObjectName("AyudaTitulo")
         label_titulo.setAlignment(Qt.AlignCenter)
         layout_principal.addWidget(label_titulo)
 
-        # 2. Grupo de Selección de Carpetas
-        group_seleccion = QGroupBox("1. Selección de Carpetas")
-        layout_seleccion = QHBoxLayout(group_seleccion)
+        group_seleccion = QGroupBox("1. Selección de Carpeta de Origen")
+        layout_seleccion = QVBoxLayout(group_seleccion)
         
-        self.entry_carpeta = QLineEdit()
-        self.entry_carpeta.setPlaceholderText("Seleccione la carpeta de la cuenta de cobro...")
-        self.entry_carpeta.setReadOnly(True)
-        boton_examinar = QPushButton("Seleccionar...")
-        boton_examinar.clicked.connect(self.seleccionar_carpeta)
-
-        layout_seleccion.addWidget(self.entry_carpeta)
-        layout_seleccion.addWidget(boton_examinar)
+        self.selector_origen = SelectorCarpeta("Carpeta de Origen")
+        
+        layout_seleccion.addWidget(self.selector_origen)
         layout_principal.addWidget(group_seleccion)
 
-        # Grupo de Acciones Adicionales
-        group_acciones = QGroupBox("Acciones Adicionales")
-        layout_acciones = QHBoxLayout(group_acciones)
+        group_acciones = QGroupBox("2. Acciones")
+        layout_acciones_grid = QGridLayout(group_acciones)
+        
+        self.boton_unir_axa = QPushButton("Unir AXA Calixto")
+        self.boton_unir_axa.clicked.connect(self.iniciar_union_axa)
+        
         self.boton_mover_respuestas = QPushButton("Mover Respuestas a Raíz")
         self.boton_mover_respuestas.clicked.connect(self.iniciar_movimiento_respuestas)
-        layout_acciones.addWidget(self.boton_mover_respuestas)
-        layout_principal.addWidget(group_acciones)
-        
-        # 3. Grupo de Modo de Operación
-        group_modo = QGroupBox("2. Modo de Operación")
-        layout_modo = QHBoxLayout(group_modo)
 
-        self.boton_aseguradoras = QPushButton("Aseguradoras")
+        self.boton_procesar = QPushButton("Iniciar Unión Estándar")
+        self.boton_procesar.setObjectName("BotonPrincipal")
+        self.boton_procesar.setFixedHeight(40)
+        self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
+        
+        self.boton_aseguradoras = QPushButton("Modo Aseguradoras")
         self.boton_aseguradoras.setCheckable(True)
         self.boton_aseguradoras.setChecked(True)
-        self.boton_adres = QPushButton("ADRES")
+        
+        self.boton_adres = QPushButton("Modo ADRES")
         self.boton_adres.setCheckable(True)
 
         self.boton_aseguradoras.clicked.connect(lambda: self.seleccionar_modo("Aseguradoras"))
         self.boton_adres.clicked.connect(lambda: self.seleccionar_modo("ADRES"))
+
+        layout_acciones_grid.addWidget(self.boton_unir_axa, 0, 0)
+        layout_acciones_grid.addWidget(self.boton_mover_respuestas, 0, 1)
+        layout_acciones_grid.addWidget(self.boton_procesar, 1, 0, 1, 2)
+        layout_acciones_grid.addWidget(self.boton_aseguradoras, 2, 0)
+        layout_acciones_grid.addWidget(self.boton_adres, 2, 1)
         
-        # Los botones se expandirán para llenar el espacio
-        layout_modo.addWidget(self.boton_aseguradoras)
-        layout_modo.addWidget(self.boton_adres)
-        layout_principal.addWidget(group_modo)
+        layout_principal.addWidget(group_acciones)
         
-        # 4. Botón de Proceso
-        self.boton_procesar = QPushButton("Iniciar Proceso de Unión")
-        self.boton_procesar.setObjectName("BotonPrincipal")
-        self.boton_procesar.setFixedHeight(40)
-        self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
-        layout_principal.addWidget(self.boton_procesar)
-        
-        # 5. Grupo de Progreso
         frame_progreso = QGroupBox("3. Progreso")
         layout_progreso = QVBoxLayout(frame_progreso)
         self.label_progreso = QLabel("Esperando para iniciar...")
@@ -137,98 +157,136 @@ class UnirSoportesWidget(QWidget):
 
         layout_principal.addStretch()
 
-    def seleccionar_carpeta(self):
-        ruta = QFileDialog.getExistingDirectory(self, "Selecciona la carpeta raíz de la Cuenta de Cobro")
-        if ruta:
-            self.ruta_seleccionada = ruta
-            self.entry_carpeta.setText(self.ruta_seleccionada)
-
     def seleccionar_modo(self, modo):
         self.modo_procesamiento = modo
         if modo == "Aseguradoras":
             self.boton_aseguradoras.setChecked(True)
             self.boton_adres.setChecked(False)
-        else: # ADRES
+        else:
             self.boton_adres.setChecked(True)
             self.boton_aseguradoras.setChecked(False)
 
-    def iniciar_procesamiento(self):
+    def es_proceso_en_ejecucion(self):
         if (self.worker_thread and self.worker_thread.isRunning()) or \
-           (self.mover_worker_thread and self.mover_worker_thread.isRunning()):
-            QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
-            return
-        if not self.ruta_seleccionada:
-            QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta primero.")
+           (self.mover_worker_thread and self.mover_worker_thread.isRunning()) or \
+           (self.axa_worker_thread and self.axa_worker_thread.isRunning()):
+            QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución. Por favor, espere a que termine.")
+            return True
+        return False
+
+    def iniciar_procesamiento(self):
+        if self.es_proceso_en_ejecucion(): return
+        
+        ruta_origen = self.selector_origen.path()
+        if not ruta_origen:
+            QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta de origen para la unión estándar.")
             return
 
-        self.boton_procesar.setEnabled(False)
+        self.deshabilitar_botones()
         self.boton_procesar.setText("Procesando...")
-        self.barra_progreso.setValue(0)
-
+        
         self.worker_thread = QThread()
-        self.worker = UnirSoportesWorker(self.ruta_seleccionada, self.modo_procesamiento)
+        self.worker = UnirSoportesWorker(ruta_origen, self.modo_procesamiento)
         self.worker.moveToThread(self.worker_thread)
-
-        self.worker.progreso_actualizado.connect(self.actualizar_progreso)
-        self.worker.proceso_finalizado.connect(self.proceso_finalizado)
+        self.worker.progreso_actualizado.connect(self.actualizar_progreso_simple)
+        self.worker.proceso_finalizado.connect(self.proceso_finalizado_estandar)
         self.worker_thread.started.connect(self.worker.ejecutar)
-
         self.worker_thread.start()
 
     def iniciar_movimiento_respuestas(self):
-        if (self.worker_thread and self.worker_thread.isRunning()) or \
-           (self.mover_worker_thread and self.mover_worker_thread.isRunning()):
-            QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución.")
-            return
-        if not self.ruta_seleccionada:
-            QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta primero.")
+        if self.es_proceso_en_ejecucion(): return
+
+        ruta_origen = self.selector_origen.path()
+        if not ruta_origen:
+            QMessageBox.critical(self, "Error", "Por favor, selecciona una carpeta de origen para mover las respuestas.")
             return
 
-        self.boton_mover_respuestas.setEnabled(False)
+        self.deshabilitar_botones()
         self.boton_mover_respuestas.setText("Moviendo...")
-        self.barra_progreso.setValue(0)
 
         self.mover_worker_thread = QThread()
-        self.mover_worker = MoverRespuestaRaizWorker(self.ruta_seleccionada)
+        self.mover_worker = MoverRespuestaRaizWorker(ruta_origen)
         self.mover_worker.moveToThread(self.mover_worker_thread)
-
-        self.mover_worker.progreso_actualizado.connect(self.actualizar_progreso)
+        self.mover_worker.progreso_actualizado.connect(self.actualizar_progreso_simple)
         self.mover_worker.proceso_finalizado.connect(self.proceso_movimiento_finalizado)
         self.mover_worker_thread.started.connect(self.mover_worker.ejecutar)
-
         self.mover_worker_thread.start()
 
-    def actualizar_progreso(self, nombre_carpeta, porcentaje):
+    def iniciar_union_axa(self):
+        if self.es_proceso_en_ejecucion(): return
+
+        dir_origen = self.selector_origen.path()
+        if not dir_origen:
+            QMessageBox.critical(self, "Error", "Debe seleccionar la carpeta de origen que contiene los archivos .zip.")
+            return
+
+        # Preguntar por la carpeta de destino justo antes de empezar
+        dir_destino = QFileDialog.getExistingDirectory(self, "Seleccione la carpeta donde se guardarán los PDFs unidos")
+        if not dir_destino:
+            # El usuario canceló la selección de carpeta
+            return
+
+        self.deshabilitar_botones()
+        self.boton_unir_axa.setText("Procesando AXA...")
+
+        self.axa_worker_thread = QThread()
+        self.axa_worker = UnirAxaCalixtoWorker(dir_origen, dir_destino)
+        self.axa_worker.moveToThread(self.axa_worker_thread)
+        self.axa_worker.progreso_actualizado.connect(self.actualizar_progreso_axa)
+        self.axa_worker.proceso_finalizado.connect(self.proceso_axa_finalizado)
+        self.axa_worker.error_ocurrido.connect(self.proceso_axa_error)
+        self.axa_worker_thread.started.connect(self.axa_worker.ejecutar)
+        self.axa_worker_thread.start()
+
+
+    def actualizar_progreso_simple(self, nombre_carpeta, porcentaje):
         self.label_progreso.setText(f"Procesando: {nombre_carpeta}...")
         self.barra_progreso.setValue(int(porcentaje))
 
-    def proceso_finalizado(self, resultados):
+    def actualizar_progreso_axa(self, mensaje, porcentaje):
+        self.label_progreso.setText(mensaje)
+        self.barra_progreso.setValue(int(porcentaje))
+        
+    def proceso_finalizado_estandar(self, resultados):
+        self.habilitar_botones()
         self.label_progreso.setText("Proceso finalizado. Listo para empezar de nuevo.")
-        self.boton_procesar.setEnabled(True)
-        self.boton_procesar.setText("Iniciar Proceso de Unión")
-
         self.worker_thread.quit()
         self.worker_thread.wait()
-
         dialogo_resultados = ResultadosDialog(resultados, self)
         dialogo_resultados.exec()
 
     def proceso_movimiento_finalizado(self, resultados):
+        self.habilitar_botones()
         self.label_progreso.setText("Movimiento de respuestas finalizado.")
-        self.boton_mover_respuestas.setEnabled(True)
-        self.boton_mover_respuestas.setText("Mover Respuestas a Raíz")
-
         self.mover_worker_thread.quit()
         self.mover_worker_thread.wait()
+        QMessageBox.information(self, "Resultado del Movimiento", f"Se movieron {len(resultados.get('movidos', []))} archivos y fallaron {len(resultados.get('errores', []))}.")
 
-        movidos_count = len(resultados.get('movidos', []))
-        errores_count = len(resultados.get('errores', []))
+    def proceso_axa_finalizado(self, mensaje):
+        self.habilitar_botones()
+        self.label_progreso.setText("Proceso de AXA Calixto finalizado.")
+        self.barra_progreso.setValue(100)
+        QMessageBox.information(self, "Éxito", mensaje)
+        self.axa_worker_thread.quit()
+        self.axa_worker_thread.wait()
 
-        titulo = "Resultado del Movimiento"
-        mensaje = f"Se movieron {movidos_count} archivos de respuesta a la carpeta raíz."
+    def proceso_axa_error(self, error_msg):
+        self.habilitar_botones()
+        self.label_progreso.setText("Error en el proceso de AXA Calixto.")
+        QMessageBox.critical(self, "Error en Proceso AXA", error_msg)
+        if self.axa_worker_thread:
+            self.axa_worker_thread.quit()
+            self.axa_worker_thread.wait()
+            
+    def deshabilitar_botones(self):
+        self.boton_unir_axa.setEnabled(False)
+        self.boton_mover_respuestas.setEnabled(False)
+        self.boton_procesar.setEnabled(False)
 
-        if errores_count > 0:
-            mensaje += f"\n\nSe encontraron {errores_count} errores. El más común es intentar mover un archivo que ya existe en la carpeta raíz. Revise la consola para más detalles."
-            # Aquí se podrían mostrar los errores en un diálogo más detallado si fuera necesario
-
-        QMessageBox.information(self, titulo, mensaje)
+    def habilitar_botones(self):
+        self.boton_unir_axa.setEnabled(True)
+        self.boton_mover_respuestas.setEnabled(True)
+        self.boton_procesar.setEnabled(True)
+        self.boton_unir_axa.setText("Unir AXA Calixto")
+        self.boton_mover_respuestas.setText("Mover Respuestas a Raíz")
+        self.boton_procesar.setText("Iniciar Unión Estándar")
