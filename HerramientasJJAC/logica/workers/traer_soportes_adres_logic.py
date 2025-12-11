@@ -37,7 +37,7 @@ class TraerSoportesAdresWorker(QObject):
 
             # 2. Buscar todas las carpetas 'envios' y 'furips'
             self.log_generado.emit(f"Buscando carpetas 'envios' y 'furips' en: {self.dir_busqueda}...")
-            carpetas_agrupadas = buscar_carpetas_por_nombre(self.dir_busqueda, ['envios', 'furips'])
+            carpetas_agrupadas = buscar_carpetas_por_nombre(self.dir_busqueda, ['envios', 'envio', 'furips'])
             self.log_generado.emit(f"Se encontraron {len(carpetas_agrupadas)} cuentas de cobro con carpetas relevantes.")
 
             if not carpetas_agrupadas:
@@ -52,7 +52,7 @@ class TraerSoportesAdresWorker(QObject):
                 
                 self.log_generado.emit(f"<b>Procesando cuenta:</b> {os.path.basename(ruta_padre)} ({i+1}/{len(carpetas_agrupadas)})")
 
-                ruta_envios = subcarpetas.get('envios')
+                ruta_envios = subcarpetas.get('envios') or subcarpetas.get('envio')
                 if not ruta_envios:
                     self.log_generado.emit(f"<font color='orange'>- Advertencia: No se encontró la carpeta 'envios' en {ruta_padre}.</font>")
                     continue

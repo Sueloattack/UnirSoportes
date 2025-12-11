@@ -78,7 +78,8 @@ def unir_axa_calixto_logic(directorio_origen, directorio_destino, progress_callb
 
             # Paso 3: Ordenar, extraer nombre factura y Unir
             total_grupos = len(archivos_por_codigo)
-            archivos_generados = 0
+            archivos_generados_lista = []
+            errores_union = []
 
             for i, (codigo_radicado, lista_archivos) in enumerate(archivos_por_codigo.items()):
                 # Actualizar barra progreso del 50 al 100
@@ -96,7 +97,7 @@ def unir_axa_calixto_logic(directorio_origen, directorio_destino, progress_callb
                 lista_archivos.sort(key=sort_key)
 
                 # Intentar extraer el código de la factura (FECR...) del archivo liq__
-                nombre_final_archivo = codigo  # Fallback: usa el número de carpeta temporal (radicado)
+                nombre_final_archivo = codigo_radicado  # Fallback: usa el número de carpeta temporal (radicado)
                 
                 # Buscar el archivo de liquidación (el que empieza por liq__)
                 archivo_liq = next((f for f in lista_archivos if os.path.basename(f).startswith('liq__')), None)
@@ -107,20 +108,35 @@ def unir_axa_calixto_logic(directorio_origen, directorio_destino, progress_callb
                     
                     if codigo_factura:
                         nombre_final_archivo = codigo_factura
-                        print(f"Factura detectada: {nombre_final_archivo}") # Debug
-                    else:
-                        print(f"NO SE ENCONTRÓ CÓDIGO FECR EN: {archivo_liq}. Se usará {codigo}.")
                 
                 # Crear la ruta de salida con el nombre obtenido
-                nombre_salida = os.path.join(directorio_destino, f"{nombre_final_archivo}.pdf")
+                nombre_base = f"{nombre_final_archivo}.pdf"
+                nombre_salida = os.path.join(directorio_destino, nombre_base)
+                
+                # Evitar sobrescritura
+                contador = 1
+                while os.path.exists(nombre_salida):
+                    nombre_base = f"{nombre_final_archivo}_{contador}.pdf"
+                    nombre_salida = os.path.join(directorio_destino, nombre_base)
+                    contador += 1
 
                 try:
                     unir_pdfs(lista_archivos, nombre_salida)
-                    archivos_generados += 1
+                    archivos_generados_lista.append({
+                        'original': f"Radicado: {codigo_radicado}",
+                        'nuevo': nombre_base,
+                        'codigo': nombre_final_archivo
+                    })
                 except Exception as e:
+                    errores_union.append({'archivo': f"Grupo {codigo_radicado}", 'error': str(e)})
                     print(f"Error al unir grupo {codigo_radicado}: {e}")
 
-        completion_callback.emit(f"Proceso AXA completado.\nSe generaron {archivos_generados} archivos PDF correctamente.")
+        completion_callback.emit({
+            'total_zips': total_zips,
+            'renombrados': archivos_generados_lista,
+            'errores': errores_union,
+            'tipo_proceso': 'AXA'
+        })
 
     except ValueError as ve:
         error_callback.emit(str(ve))

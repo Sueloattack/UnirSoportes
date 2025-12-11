@@ -21,7 +21,9 @@ from gui.widgets.traer_soportes_adres import TraerSoportesAdresWidget
 from gui.widgets.buscador_soportes_nuevos import BuscadorSoportesNuevosWidget
 from gui.widgets.buscador_soportes_ratificados import BuscadorSoportesRatificadosWidget
 from gui.widgets.buscador_carpetas_ratificadas import BuscadorCarpetasRatificadasWidget
+from gui.widgets.buscador_soportes_conci import BuscadorSoportesConciWidget
 from gui.widgets.panel_ayuda import PanelAyudaWidget
+from gui.widgets.automatizador_radicacion import AutomatizadorRadicacionWidget
 
 
 class VentanaPrincipal(QMainWindow):
@@ -99,6 +101,7 @@ class VentanaPrincipal(QMainWindow):
         self._add_widget(cat_procesamiento, "Unir soportes", "US", "widgets.unir_soportes", "UnirSoportesWidget")
         self._add_widget(cat_procesamiento, "Revisor de facturas", "AUD", "widgets.auditor_cuentas_cobro", "AuditorCuentasCobroWidget")
         self._add_widget(cat_procesamiento, "Renombrar archivos", "REN", "widgets.renombrador", "RenombradorWidget")
+        self._add_widget(cat_procesamiento, "Automatizador Radicación", "AUT", "widgets.automatizador_radicacion", "AutomatizadorRadicacionWidget")
 
 
         # 2. Categoría Organización
@@ -114,6 +117,7 @@ class VentanaPrincipal(QMainWindow):
         self._add_widget(cat_busqueda, "Traer Soportes ADRES", "TSA", "widgets.traer_soportes_adres", "TraerSoportesAdresWidget")
         self._add_widget(cat_busqueda, "Buscar Soportes NU", "BSN", "widgets.buscador_soportes_nuevos", "BuscadorSoportesNuevosWidget")
         self._add_widget(cat_busqueda, "Buscar Soportes R2", "BSR", "widgets.buscador_soportes_ratificados", "BuscadorSoportesRatificadosWidget")
+        self._add_widget(cat_busqueda, "Buscar Soportes CONCI", "BSC", "widgets.buscador_soportes_conci", "BuscadorSoportesConciWidget")
         self._add_widget(cat_busqueda, "Buscar carpetas ADRES", "BC", "widgets.buscador_carpetas_ratificadas", "BuscadorCarpetasRatificadasWidget")
         
         # 4. Categoría Sistema

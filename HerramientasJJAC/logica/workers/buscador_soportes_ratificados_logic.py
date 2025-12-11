@@ -121,7 +121,7 @@ class BuscadorSoportesRatificadosWorker(QObject):
     def _copiar_soportes(self, ruta_origen: str, dir_destino_general: str, numero_factura: str):
         archivos_copiados = 0
         try:
-            # Identificar solo los archivos que son soportes
+            # Identificar solo los archivos que son soportes (Filtrando estrictamente PDF)
             archivos_pdf_nombres = [f for f in os.listdir(ruta_origen) if f.lower().endswith('.pdf')]
             documentos = identificar_documentos_aseguradoras(archivos_pdf_nombres, ruta_origen)
             soportes_a_copiar = documentos.get('soportes', [])
@@ -139,6 +139,10 @@ class BuscadorSoportesRatificadosWorker(QObject):
             self._log(f"-> Se identificaron {len(soportes_a_copiar)} soportes específicos. Copiando...", COLOR_INFO)
 
             for ruta_completa_origen in soportes_a_copiar:
+                # DOBLE VERIFICACIÓN: Solo copiar si es PDF
+                if not ruta_completa_origen.lower().endswith('.pdf'):
+                    continue
+
                 nombre_item = os.path.basename(ruta_completa_origen)
                 ruta_completa_destino = os.path.join(ruta_destino_especifica, nombre_item)
                 

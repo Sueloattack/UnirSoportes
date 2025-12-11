@@ -17,10 +17,11 @@ class UnirSoportesWorker(QObject):
     proceso_finalizado = Signal(dict)
     barra_progreso_actualizada = Signal(float)
 
-    def __init__(self, ruta_carpeta_raiz, modo):
+    def __init__(self, ruta_carpeta_raiz, modo, solo_soportes=False):
         super().__init__()
         self.ruta_carpeta_raiz = ruta_carpeta_raiz
         self.modo = modo
+        self.solo_soportes = solo_soportes
         self.esta_cancelado = False
         # Paleta de colores para logs HTML
         self.color_texto = "#ecf0f1"
@@ -90,6 +91,46 @@ class UnirSoportesWorker(QObject):
         respuesta_glosa = documentos['respuesta_glosa']
         soportes = documentos['soportes']
 
+        # MODO SOLO SOPORTES
+        if self.solo_soportes:
+            if not respuesta_glosa:
+                resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": "No se encontró la Respuesta Glosa (archivo destino)."})
+                return
+            
+            # Verificar qué soportes ya están unidos
+            soportes_faltantes = []
+            for soporte in soportes:
+                try:
+                    ya_unido = procesador_pdf.verificar_fusion_por_contenido(
+                        ruta_pdf_destino=respuesta_glosa['path'],
+                        ruta_pdf_fuente=soporte
+                    )
+                    if not ya_unido:
+                        soportes_faltantes.append(soporte)
+                except Exception:
+                    soportes_faltantes.append(soporte)  # Si hay error, asumir que falta
+            
+            if not soportes_faltantes:
+                mensaje = f"Todos los {len(soportes)} soportes ya están unidos."
+                resultados['exitosos'].append({"carpeta": nombre_carpeta, "razon": mensaje})
+                return
+            
+            # Unir solo los soportes faltantes
+            try:
+                soportes_faltantes.sort()
+                procesador_pdf.fusionar_pdfs_en_destino(
+                    ruta_pdf_destino=respuesta_glosa['path'],
+                    rutas_pdf_fuentes=soportes_faltantes
+                )
+                ya_unidos = len(soportes) - len(soportes_faltantes)
+                mensaje = f"✅ {ya_unidos} soportes ya unidos, {len(soportes_faltantes)} soportes agregados."
+                resultados['exitosos'].append({"carpeta": nombre_carpeta, "razon": mensaje})
+            except Exception as e:
+                razon = f"Error al unir soportes: {e}"
+                resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": razon})
+            return
+
+        # MODO NORMAL (con Carta Glosa)
         if not carta_glosa:
             resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": "No se encontró la Carta Glosa."})
             return
@@ -145,6 +186,46 @@ class UnirSoportesWorker(QObject):
         respuesta_glosa = documentos['respuesta_glosa']
         soportes = documentos['soportes']
 
+        # MODO SOLO SOPORTES
+        if self.solo_soportes:
+            if not epicrisis:
+                resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": "Modo ADRES: No se encontró el archivo de Epicrisis (archivo destino)."})
+                return
+            
+            # Verificar qué soportes ya están unidos
+            soportes_faltantes = []
+            for soporte in soportes:
+                try:
+                    ya_unido = procesador_pdf.verificar_fusion_por_contenido(
+                        ruta_pdf_destino=epicrisis['path'],
+                        ruta_pdf_fuente=soporte
+                    )
+                    if not ya_unido:
+                        soportes_faltantes.append(soporte)
+                except Exception:
+                    soportes_faltantes.append(soporte)  # Si hay error, asumir que falta
+            
+            if not soportes_faltantes:
+                mensaje = f"Todos los {len(soportes)} soportes ya están unidos a la Epicrisis."
+                resultados['exitosos'].append({"carpeta": nombre_carpeta, "razon": mensaje})
+                return
+            
+            # Unir solo los soportes faltantes
+            try:
+                soportes_faltantes.sort()
+                procesador_pdf.fusionar_pdfs_en_destino(
+                    ruta_pdf_destino=epicrisis['path'],
+                    rutas_pdf_fuentes=soportes_faltantes
+                )
+                ya_unidos = len(soportes) - len(soportes_faltantes)
+                mensaje = f"✅ {ya_unidos} soportes ya unidos, {len(soportes_faltantes)} soportes agregados a Epicrisis."
+                resultados['exitosos'].append({"carpeta": nombre_carpeta, "razon": mensaje})
+            except Exception as e:
+                razon = f"Error al unir soportes a Epicrisis: {e}"
+                resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": razon})
+            return
+
+        # MODO NORMAL (con Respuesta Glosa)
         if not epicrisis:
             resultados['fallidos'].append({"carpeta": nombre_carpeta, "razon": "Modo ADRES: No se encontró el archivo de Epicrisis."})
             return

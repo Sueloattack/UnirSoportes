@@ -5,9 +5,11 @@ import shutil
 from PySide6.QtCore import QObject, Signal
 
 # Patrones para identificar las respuestas de glosa, basados en identificador_archivos.py
-PATRON_RESPUESTA_VERIFICABLE = re.compile(r"([A-Z]+)_?(\d+)\.pdf", re.IGNORECASE)
-PATRON_RESPUESTA_GLOSA_REP = re.compile(r"GLOSA_REP\d*\.pdf", re.IGNORECASE)
-PATRON_RESPUESTA_GLOSA_NUEVO = re.compile(r"resp_glosa\.pdf", re.IGNORECASE)
+# IMPORTANTE: Solo series válidas: FECR, FCR, COEX, FERD, FERR
+# El patrón debe ser ESTRICTO: serie válida + números + .pdf (sin nada más)
+PATRON_RESPUESTA_VERIFICABLE = re.compile(r"^(FECR|FCR|COEX|FERD|FERR)(\d+)\.pdf$", re.IGNORECASE)
+PATRON_RESPUESTA_GLOSA_REP = re.compile(r"^GLOSA_REP\d*\.pdf$", re.IGNORECASE)
+PATRON_RESPUESTA_GLOSA_NUEVO = re.compile(r"^resp_glosa\.pdf$", re.IGNORECASE)
 PATRONES_RESPUESTA = [
     PATRON_RESPUESTA_VERIFICABLE,
     PATRON_RESPUESTA_GLOSA_REP,
