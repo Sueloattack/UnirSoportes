@@ -1,586 +1,387 @@
-# logica/workers/automatizador_radicacion_logic.py
-
 import os
 import re
-import pypdf
-import pytesseract
-from pdf2image import convert_from_path
+import pdfplumber
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-# Configuración de ruta Tesseract si no está en PATH (opcional, ajustar según entorno)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# ========================================================
+# 1. UTILIDADES Y LÓGICA DE EXTRACCIÓN (PDFPLUMBER)
+# ========================================================
 
-import io
-from PIL import Image
-
-def extraer_texto_ocr(ruta_pdf):
-    """
-    Intenta extraer texto usando OCR.
-    Estrategia 1: pdf2image (requiere Poppler).
-    Estrategia 2: pypdf (extraer imágenes incrustadas).
-    """
-    texto_ocr = ""
+def limpiar_valor(valor_str):
+    """Convierte '$ 5.542.250,00' -> 5542250.0"""
+    if not valor_str: return 0.0
     try:
-        # Estrategia 1: pdf2image
-        try:
-            # Check si poppler está disponible intentando una conversión simple o verificando
-            # print(f"  → Intentando OCR con pdf2image para: {os.path.basename(ruta_pdf)}")
-            imagenes = convert_from_path(ruta_pdf)
-            for imagen in imagenes:
-                texto_ocr += pytesseract.image_to_string(imagen)
-            return texto_ocr
-        except Exception as e_poppler:
-            # print(f"  ⚠ Fallo pdf2image (¿Falta Poppler?): {e_poppler}")
-            # print("  → Intentando extracción directa de imágenes con pypdf...")
-            pass
-
-        # Estrategia 2: Extracción directa con pypdf
-        with open(ruta_pdf, 'rb') as f:
-            reader = pypdf.PdfReader(f)
-            for page in reader.pages:
-                for image_file in page.images:
-                    try:
-                        image_data = image_file.data
-                        image = Image.open(io.BytesIO(image_data))
-                        texto_ocr += pytesseract.image_to_string(image)
-                    except Exception as e_img:
-                        print(f"    ⚠ Error procesando imagen interna: {e_img}")
-        
-        return texto_ocr
-
-    except Exception as e:
-        print(f"  ⚠ Fallo OCR General: {e}")
-        return ""
+        limpio = re.sub(r'[^\d.,]', '', valor_str)
+        # Formato Colombia: Puntos son miles, comas son decimales
+        limpio = limpio.replace('.', '').replace(',', '.')
+        return float(limpio)
+    except ValueError: return 0.0
 
 def extraer_serie_numero_de_nombre(nombre_archivo):
-    """
-    Extrae serie y número del nombre del archivo.
-    Ej: 'FECR340375.pdf' → ('FECR', '340375')
-        'COEX13088.pdf' → ('COEX', '13088')
-    
-    Returns:
-        tuple: (serie, numero) o (None, None) si no se puede extraer
-    """
-    # Remover extensión
+    """Extrae FECR y 336664 del nombre"""
     nombre_sin_ext = os.path.splitext(nombre_archivo)[0]
-    
-    # Patrón: letras seguidas de números
-    match = re.match(r'^([A-Z]+)(\d+)$', nombre_sin_ext, re.IGNORECASE)
+    match = re.search(r'([A-Za-z]+)(\d+)', nombre_sin_ext)
     if match:
         return match.group(1).upper(), match.group(2)
-    
     return None, None
 
+def _crear_respuesta_error(msg, es_imagen=False):
+    return {
+        'valor_objecion': 0, 'clasificacion': None, 'tiene_valor': False,
+        'es_devolucion_total': False, 'es_glosa_parcial': False, 
+        'es_gt': False, 'es_devolucion_simple': False, 
+        'es_pdf_escaneado': es_imagen, 'error': msg,
+        'items_detectados': [] 
+    }
+
+def analizar_items_porcentajes(texto):
+    """Busca porcentajes (ej. 0.00% o 100.00%) para la lógica de items"""
+    matches = re.findall(r'(\d+[.,]\d+)\s*%', texto)
+    porcentajes = []
+    for m in matches:
+        try:
+            val = float(m.replace(',', '.'))
+            porcentajes.append(val)
+        except: pass
+    return porcentajes
+
+def analizar_filas_items(texto):
+    """
+    Busca líneas que contengan porcentajes, asumiendo que corresponden a items tabulados.
+    Retorna una lista de strings (las líneas completas).
+    """
+    lines = texto.split('\n')
+    items = []
+    # Regex para detectar porcentajes típicos: 100.00%, 0%, 50,00 %
+    pct_re = re.compile(r'\d+[.,]?\d*\s*%')
+    
+    for line in lines:
+        if pct_re.search(line):
+            # Limpieza básica
+            items.append(line.strip())
+    return items
+
+def analizar_liquidacion_tabular(texto):
+    """Estrategia para las tablas de liquidación FECR estándar"""
+    datos = {
+        'valor_objecion': 0.0, 'valor_pagar': 0.0, 'encontrado': False,
+        'hay_porcentaje_cero': False, 'todos_son_cien': False
+    }
+    # Buscar códigos financieros al pie
+    m_obj = re.search(r'1002\s*(?:Objeci[oó]n)?\s*\$?\s*([\d\.,]+)', texto)
+    m_pag = re.search(r'9023\s*(?:Pago neto)?\s*\$?\s*([\d\.,]+)', texto)
+    
+    if m_obj or m_pag:
+        datos['encontrado'] = True
+        if m_obj: datos['valor_objecion'] = limpiar_valor(m_obj.group(1))
+        if m_pag: datos['valor_pagar'] = limpiar_valor(m_pag.group(1))
+
+    # Analizar porcentajes de los items para clasificar
+    porcentajes = analizar_items_porcentajes(texto)
+    if porcentajes:
+        # Si hay items < 99.9%, significa que hay items aceptados
+        datos['hay_porcentaje_cero'] = any(p < 99.9 for p in porcentajes)
+        # Si todos son > 99%, es glosa total
+        datos['todos_son_cien'] = all(p > 99.0 for p in porcentajes)
+    
+    return datos
+
+def analizar_formato_devolucion_simple(texto):
+    """Estrategia para formatos tipo RGC Activa / Oficios"""
+    claves = ["objeción de factura", "gestiones de servicios", "motivo objeción"]
+    if not any(x in texto.lower() for x in claves):
+        return {'valor': 0.0, 'encontrado': False}
+
+    m = re.search(r'Total:\s*\$?\s*([\d\.,]+)', texto, re.IGNORECASE)
+    return {'valor': limpiar_valor(m.group(1)) if m else 0.0, 'encontrado': bool(m)}
+
+def analizar_carta_narrativa(texto):
+    """Estrategia para cartas de texto corrido (COEX)"""
+    m = re.search(r'por\s+valor\s+de\s*\$?\s*([\d\.,]+)', texto, re.IGNORECASE)
+    return {'valor': limpiar_valor(m.group(1)) if m else 0.0, 'encontrado': bool(m)}
 
 def extraer_datos_carta_glosa(ruta_pdf):
-    """
-    Extrae datos del PDF de carta glosa.
-    
-    Returns:
-        dict: {
-            'valor_objecion': float o None,
-            'clasificacion': str o None,
-            'tiene_valor': bool
-        }
-    """
+    texto_completo = ""
     try:
-        with open(ruta_pdf, 'rb') as f:
-            lector = pypdf.PdfReader(f)
-            texto_completo = ""
-            
-            # Extraer texto de todas las páginas
-            for pagina in lector.pages:
-                texto_completo += pagina.extract_text()
-            
-            # Verificar si el PDF tiene texto extraíble
-            texto_limpio = texto_completo.strip()
-            
-            # Si hay poco texto, probar OCR pero NO detenerse
-            if len(texto_limpio) < 100:
-                print(f"  ⚠️  ADVERTENCIA: PDF con poco texto extraíble ({len(texto_limpio)} caracteres). Intentando OCR...")
-                texto_ocr = extraer_texto_ocr(ruta_pdf)
-                if len(texto_ocr) > len(texto_limpio):
-                    texto_completo += "\n" + texto_ocr
-                    print(f"  → Texto recuperado con OCR: {len(texto_ocr)} caracteres")
-                else:
-                    print("  → OCR no mejoró el resultado.")
-
-            
-            # Buscar valor de objeción total
-            valor_objecion = None
-            tiene_valor = False
-            
-            # Patrón 1: "Objeción    $ 73.500,00" o "Objecion: $ 27.400,00"
-            match_objecion = re.search(r'Objeci[oó]n\s*:?\s*\$?\s*&?nbsp;?\s*([\d,.]+)', texto_completo, re.IGNORECASE)
-            if match_objecion:
-                # Formato colombiano: punto = separador de miles, coma = decimal
-                # Ejemplo: 54.400,00 = 54400
-                valor_str = match_objecion.group(1)
-                # Eliminar puntos (separador de miles) y reemplazar coma por punto (decimal)
-                valor_str = valor_str.replace('.', '').replace(',', '.')
-                try:
-                    valor_objecion = float(valor_str)
-                    tiene_valor = True
-                except ValueError:
-                    pass
-            
-            # Patrón 2: Buscar "1002" seguido de "Objeción" (pueden estar en líneas separadas)
-            # Formato: "1002\nObjeción\n   $ 54.400,00"
-            if not tiene_valor:
-                # Buscar 1002, luego Objeción, luego $ y valor (con espacios y saltos de línea)
-                match_1002 = re.search(r'1002[\s\n]+Objeci[oó]n[\s\n]+\$?[\s&nbsp;]*([ \s]*[\d,.]+)', texto_completo, re.IGNORECASE)
-                if match_1002:
-                    # Formato colombiano: punto = separador de miles, coma = decimal
-                    valor_str = match_1002.group(1).strip().replace('\xa0', '')
-                    # Eliminar puntos (miles) y reemplazar coma por punto (decimal)
-                    valor_str = valor_str.replace('.', '').replace(',', '.')
-                    try:
-                        valor_objecion = float(valor_str)
-                        tiene_valor = True
-                    except ValueError:
-                        pass
-            
-            # Patrón 3: Buscar "VTC    Valor total cobrado    $ X" como alternativa
-            if not tiene_valor:
-                match_vtc = re.search(r'VTC\s+Valor total cobrado\s+\$\s*&?nbsp;?\s*([\d,.]+)', texto_completo, re.IGNORECASE)
-                if match_vtc:
-                    # Formato colombiano
-                    valor_str = match_vtc.group(1).replace('.', '').replace(',', '.')
-                    try:
-                        valor_objecion = float(valor_str)
-                        tiene_valor = True
-                    except ValueError:
-                        pass
-            
-            # Patrón 4: Buscar "Total:" seguido de valor (para PDFs tipo GT con (8) Devoluciones)
-            # Formato: "Total:\n$   524.500"
-            if not tiene_valor:
-                match_total = re.search(r'Total:\s*\$?\s*([\d,.]+)', texto_completo, re.IGNORECASE)
-                if match_total:
-                    # Formato colombiano
-                    valor_str = match_total.group(1).replace('.', '').replace(',', '.')
-                    try:
-                        valor_objecion = float(valor_str)
-                        tiene_valor = True
-                    except ValueError:
-                        pass
-            
-            # Analizar ítems para determinar tipo de glosa
-            es_devolucion_total = False
-            es_glosa_parcial = False
-            es_gt = False  # Glosa Total (cuando dice "(8) Devoluciones" Y tiene ítems con objeción)
-            tiene_rubro_devoluciones = False
-            
-            # Buscar si dice "(8) Devoluciones" en el rubro
-            if re.search(r'\(8\)\s*Devoluciones', texto_completo, re.IGNORECASE):
-                tiene_rubro_devoluciones = True
-            
-            if tiene_valor:
-                # Buscar todos los ítems con sus porcentajes
-                # Patrón: "100.00%" o "0.00%"
-                # Mejorado: Buscar también valores asociados para detectar $0.00
-                porcentajes_raw = re.findall(r'(\d+\.\d+)%', texto_completo)
-                
-                if porcentajes_raw:
-                    porcentajes_float = [float(p) for p in porcentajes_raw]
-                    
-                    # Contar cuántos tienen 100% y cuántos tienen 0%
-                    items_100 = sum(1 for p in porcentajes_float if p == 100.0)
-                    items_0 = sum(1 for p in porcentajes_float if p == 0.0)
-                    total_items = len(porcentajes_float)
-                    
-                    # Búsqueda heurística de valores cero asociados a ítems
-                    # Si encontramos "$ 0,00" o "$ 0" cerca de un ítem, podría ser Glosa Parcial aunque sea 100%
-                    # Esto es difícil con regex simple, así que usamos heurística:
-                    # Si hay presencia de "$ 0,00" o "$ 0.00" o "$ 0 " en el documento
-                    hay_valores_cero = bool(re.search(r'\$\s*0[,.]00', texto_completo) or re.search(r'\$\s*0\s', texto_completo))
-
-                    # Lógica de clasificación
-                    
-                    # 1. Glosa Total (GT): Rubro (8) Devoluciones Y hay ítems objetados
-                    # Se diferencia de Devolución simple (oficio) porque el oficio no suele tener porcentajes desglosados
-                    if tiene_rubro_devoluciones and items_100 > 0:
-                        es_gt = True
-                        
-                    # 2. Glosa Parcial (Mezcla real):
-                    # - Mezcla de porcentajes 100% y 0% explicita
-                    # - O todos 100% PERO hay valores de $0 detectados (caso FECR343879)
-                    elif (items_100 > 0 and items_0 > 0) or (items_100 == total_items and hay_valores_cero):
-                         es_glosa_parcial = True
-                         
-                    # 3. Devolución Total:
-                    # - Todos los ítems al 100%
-                    # - NO debe haber mezcla con 0%
-                    # - NO debe haber valores monetarios de $0 (implícito por el `elif` anterior)
-                    elif items_100 > 0 and items_0 == 0 and items_100 == total_items:
-                        es_devolucion_total = True
-                        
-                    # 4. Caso raro (solo 0%), probablemente parcial
-                    elif items_0 > 0 and items_100 == 0:
-                        es_glosa_parcial = True
-                else:
-                    # No hay porcentajes en el PDF (es un oficio o formato diferente)
-                    pass
-            
-            # Revaluar si es simple Oficio de Devolución (sin ítems porcentuales)
-            # Si tiene rubro (8) Devoluciones y NO se detectó GT (porque no halló ítems), es Devolución simple
-            es_devolucion_simple = False
-            if tiene_rubro_devoluciones and not es_gt and not es_glosa_parcial and not es_devolucion_total:
-                es_devolucion_simple = True
-            
-            # Busqueda heuristica: Si dice "DEVOLUCION" explícitamente y no hay items
-            if not es_devolucion_simple and not es_gt and not es_glosa_parcial and not es_devolucion_total:
-                 if re.search(r'DEVOLUCI[OÓ]N', texto_completo, re.IGNORECASE) and items_100 == 0:
-                      es_devolucion_simple = True
-
-            # Manejo especial: Si no se encontró valor (tiene_valor=False) pero es una Devolución/Oficio
-            # Automáticamente clasificaremos como 'Devolución' en el llenado y usaremos Saldo Cartera
-
-            
-            # Buscar clasificación
-            clasificacion = None
-            
-            # Patrón 1: "Clasificación: R3"
-            match_clasif = re.search(r'Clasificaci[oó]n\s*:?\s*([A-Z0-9]+)', texto_completo, re.IGNORECASE)
-            if match_clasif:
-                clasificacion = match_clasif.group(1).upper()
-            
-            # Patrón 2: Buscar código "NU" específicamente
-            if not clasificacion and re.search(r'\bNU\b', texto_completo):
-                clasificacion = 'NU'
-            
-            return {
-                'valor_objecion': valor_objecion,
-                'clasificacion': clasificacion,
-                'tiene_valor': tiene_valor,
-                'es_devolucion_total': es_devolucion_total,
-                'es_glosa_parcial': es_glosa_parcial,
-                'es_gt': es_gt,
-                'es_devolucion_simple': es_devolucion_simple,
-                'es_pdf_escaneado': False,
-                'error': None
-            }
-    
+        with pdfplumber.open(ruta_pdf) as pdf:
+            for page in pdf.pages:
+                txt = page.extract_text()
+                if txt: texto_completo += txt + "\n"
     except Exception as e:
-        print(f"Error extrayendo datos de {ruta_pdf}: {e}")
-        return {
-            'valor_objecion': None,
-            'clasificacion': None,
-            'tiene_valor': False,
-            'es_devolucion_total': False,
-            'es_glosa_parcial': False,
-            'es_gt': False,
-            'es_devolucion_simple': False,
-            'es_pdf_escaneado': False,
-            'error': str(e)
-        }
+        return _crear_respuesta_error(f"Error lectura PDF: {e}")
 
+    # Verificar si es imagen (Scaneado)
+    if len(texto_completo.strip()) < 50:
+        return _crear_respuesta_error("PDF es imagen/escaneado", es_imagen=True)
+
+    res = {
+        'valor_objecion': 0.0, 'clasificacion': None, 'tiene_valor': False,
+        'es_devolucion_total': False, 'es_glosa_parcial': False, 
+        'es_gt': False, 'es_devolucion_simple': False,
+        'es_pdf_escaneado': False, 'error': None,
+        'items_detectados': []
+    }
+    
+    # Extraer items potenciales (filas con porcentajes)
+    res['items_detectados'] = analizar_filas_items(texto_completo)
+    
+    # --- ESTRATEGIA 1: TABLA LIQUIDACIÓN (Mayoría de FECR) ---
+    lectura_tabla = analizar_liquidacion_tabular(texto_completo)
+    
+    if lectura_tabla['encontrado']:
+        res['valor_objecion'] = lectura_tabla['valor_objecion']
+        res['tiene_valor'] = True
+        
+        pagar = lectura_tabla['valor_pagar']
+        hay_ceros = lectura_tabla['hay_porcentaje_cero']
+        todos_cien = lectura_tabla['todos_son_cien']
+        
+        # Clasificación
+        if pagar > 100: 
+            res['es_glosa_parcial'] = True
+        elif hay_ceros:
+            # Caso crítico: Paga $0 pero hay items al 0.00% aceptados
+            res['es_glosa_parcial'] = True
+        elif todos_cien and res['valor_objecion'] > 0:
+            res['es_gt'] = True
+        else:
+            if res['valor_objecion'] > 0: res['es_gt'] = True
+
+    # --- ESTRATEGIA 2: FORMATO DEVOLUCIÓN ---
+    elif True: 
+        lectura_dev = analizar_formato_devolucion_simple(texto_completo)
+        if lectura_dev['encontrado']:
+            res['valor_objecion'] = lectura_dev['valor']
+            res['tiene_valor'] = True
+            if "devolucion" in texto_completo.lower() or "vigencia" in texto_completo.lower():
+                res['es_devolucion_total'] = True
+            else: res['es_gt'] = True
+        else:
+            # --- ESTRATEGIA 3: CARTA NARRATIVA (COEX) ---
+            lectura_narr = analizar_carta_narrativa(texto_completo)
+            if lectura_narr['encontrado']:
+                res['valor_objecion'] = lectura_narr['valor']
+                res['tiene_valor'] = True
+                res['es_devolucion_simple'] = True
+            elif "devolucion" in texto_completo.lower() and not res['tiene_valor']:
+                res['es_devolucion_simple'] = True # Asume saldo cartera
+
+    match_clasif = re.search(r'Clasificaci[oó]n\s*:?\s*([A-Z0-9]+)', texto_completo, re.IGNORECASE)
+    if match_clasif: res['clasificacion'] = match_clasif.group(1).upper()
+        
+    return res
+
+# ========================================================
+# 2. AUTOMATIZACIÓN (PLAYWRIGHT)
+# ========================================================
 
 def automatizar_radicacion_logic(carpeta_pdfs, fecha_notificacion, username, password, 
                                   headless, progress_callback, completion_callback, 
                                   error_callback):
     """
-    Función principal de orquestación para automatizar la radicación.
-    
-    Args:
-        carpeta_pdfs: Ruta a la carpeta con los PDFs de carta glosa
-        fecha_notificacion: Fecha en formato YYYY-MM-DD o DD/MM/YYYY
-        username: Usuario para login
-        password: Contraseña para login
-        headless: bool, True para modo sin interfaz gráfica
-        progress_callback: Signal(str, int) para reportar progreso
-        completion_callback: Signal(dict) para reportar finalización
-        error_callback: Signal(str) para reportar errores
+    Función orquestadora que abre el navegador y procesa la lista de PDFs.
     """
     try:
-        # 1. Validar carpeta y encontrar PDFs
+        # 1. Validaciones previas
         if not os.path.isdir(carpeta_pdfs):
             raise ValueError(f"La carpeta no existe: {carpeta_pdfs}")
         
         archivos = os.listdir(carpeta_pdfs)
         pdfs = [f for f in archivos if f.lower().endswith('.pdf')]
         
-        if not pdfs:
-            raise ValueError("No se encontraron archivos PDF en la carpeta seleccionada")
+        if not pdfs: raise ValueError("No se encontraron archivos PDF en la carpeta seleccionada")
         
         total_pdfs = len(pdfs)
         progress_callback.emit(f"Encontrados {total_pdfs} archivos PDF", 5)
         
-        resultados = {
-            'exitosos': [],
-            'fallidos': [],
-            'advertencias': []
-        }
+        # Estructura de resultados
+        resultados = {'exitosos': [], 'fallidos': [], 'advertencias': []}
         
-        # 2. Lanzar navegador con Playwright
-        progress_callback.emit("Iniciando navegador...", 10)
-        
+        # 2. Iniciar Browser
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
-            context = browser.new_context()
-            page = context.new_page()
+            page = browser.new_page()
             
             try:
                 # 3. Login
-                progress_callback.emit("Iniciando sesión...", 15)
-                page.goto('https://asotrauma.ngrok.app/441_v2/pages/radicacion.php', timeout=30000)
-                
-                # Esperar a que cargue la página
-                page.wait_for_load_state('networkidle', timeout=30000)
-                
-                # Verificar si ya está en la página de radicación o si necesita login
+                progress_callback.emit("Iniciando sesión en la plataforma...", 10)
                 try:
-                    # Intentar encontrar el campo de usuario (indica que está en login)
-                    page.wait_for_selector('input[name="user"]', timeout=5000)
+                    page.goto('https://asotrauma.ngrok.app/441_v2/pages/radicacion.php', timeout=30000)
                     
-                    # Llenar credenciales
-                    print(f"  → Llenando usuario: {username}")
-                    page.fill('input[name="user"]', username)
-                    page.fill('input[name="password"]', password)
-                    
-                    # Buscar y hacer clic en el botón de login
-                    # El botón es: <input type="submit" class="btn btn-outline-primary d-block w-100" value="Ingresar">
-                    print("  → Buscando botón de login...")
-                    
-                    try:
-                        # Buscar input type submit
-                        login_button = page.locator('input[type="submit"]').first
-                        login_button.wait_for(timeout=2000)
-                        print("  → Haciendo clic en botón de login (input submit)...")
-                        login_button.click()
-                        page.wait_for_load_state('networkidle', timeout=30000)
-                        print("  → Login exitoso")
-                    except:
-                        # Si no encuentra input submit, intentar presionar Enter
-                        print("  → No se encontró botón, presionando Enter...")
-                        page.press('input[name="password"]', 'Enter')
-                        page.wait_for_load_state('networkidle', timeout=30000)
-                        print("  → Login exitoso (Enter)")
-                    
+                    # Verificamos si pide login o ya entró
+                    if page.locator('input[name="user"]').count() > 0:
+                        page.fill('input[name="user"]', username)
+                        page.fill('input[name="password"]', password)
+                        
+                        # Click botón ingresar o Enter
+                        try:
+                            page.click('input[type="submit"]', timeout=2000)
+                        except:
+                            page.press('input[name="password"]', 'Enter')
+                        
+                        page.wait_for_load_state('networkidle')
                 except Exception as e:
-                    # Ya está logueado o error
-                    print(f"  → Ya está en la página de radicación o error: {e}")
-                
-                progress_callback.emit("Sesión iniciada correctamente", 20)
-                
-                # 4. Procesar cada PDF
+                    print(f"Nota Login (no crítico): {e}")
+
+                # 4. Procesar Archivos
                 for i, pdf_nombre in enumerate(pdfs):
-                    porcentaje_base = 20
-                    porcentaje_por_pdf = 70 / total_pdfs
-                    porcentaje_actual = int(porcentaje_base + (i * porcentaje_por_pdf))
-                    
-                    progress_callback.emit(f"Procesando {pdf_nombre} ({i+1}/{total_pdfs})...", porcentaje_actual)
+                    pct = int(15 + (i * 80 / total_pdfs))
+                    progress_callback.emit(f"Procesando {pdf_nombre}...", pct)
                     
                     try:
                         ruta_pdf = os.path.join(carpeta_pdfs, pdf_nombre)
-                        
-                        # Extraer serie y número del nombre
                         serie, numero = extraer_serie_numero_de_nombre(pdf_nombre)
-                        if not serie or not numero:
-                            raise ValueError(f"No se pudo extraer serie/número del nombre: {pdf_nombre}")
                         
-                        # Extraer datos del PDF
+                        if not serie or not numero:
+                            raise ValueError(f"El nombre del archivo no cumple formato (SERIE+NUMERO.pdf)")
+
+                        # -- PASO A: EXTRAER DATOS (Usa la lógica de arriba) --
                         datos_pdf = extraer_datos_carta_glosa(ruta_pdf)
                         
-                        # Verificar si es un PDF escaneado
-                        if datos_pdf.get('es_pdf_escaneado', False):
-                            raise ValueError(f"PDF escaneado o sin texto extraíble. {datos_pdf.get('error', '')}")
+                        # -- PASO B: FILTRAR SI ES IMAGEN --
+                        if datos_pdf['es_pdf_escaneado']:
+                            resultados['advertencias'].append({'archivo': pdf_nombre, 'razon': 'PDF es Imagen/Escaneado (Saltado)'})
+                            print(f"Advertencia: {pdf_nombre} saltado por ser imagen.")
+                            continue
+                            
+                        # -- PASO C: LLENAR FORMULARIO WEB --
+                        llenar_formulario_radicacion_sync(page, serie, numero, datos_pdf, fecha_notificacion, ruta_pdf)
                         
-                        # Llenar formulario
-                        llenar_formulario_radicacion_sync(
-                            page, serie, numero, datos_pdf, 
-                            fecha_notificacion, ruta_pdf
-                        )
-                        
+                        # -- PASO D: REGISTRAR ÉXITO --
                         resultados['exitosos'].append({
-                            'archivo': pdf_nombre,
-                            'serie': serie,
-                            'numero': numero,
-                            'valor_glosa': datos_pdf.get('valor_objecion'),
-                            'clasificacion': datos_pdf.get('clasificacion')
+                            'archivo': pdf_nombre, 
+                            'valor': datos_pdf.get('valor_objecion'),
+                            'clasif': datos_pdf.get('clasificacion')
                         })
+                        print(f"✓ Éxito: {pdf_nombre}")
                         
-                        print(f"✓ Procesado exitosamente: {pdf_nombre}")
-                    
                     except Exception as e:
-                        resultados['fallidos'].append({
-                            'archivo': pdf_nombre,
-                            'error': str(e)
-                        })
-                        print(f"✗ Error procesando {pdf_nombre}: {e}")
-                
-                progress_callback.emit("Finalizando...", 95)
-            
+                        print(f"✗ Error en {pdf_nombre}: {e}")
+                        resultados['fallidos'].append({'archivo': pdf_nombre, 'error': str(e)})
+
             finally:
                 browser.close()
-        
-        # 5. Reportar finalización
-        progress_callback.emit("Proceso completado", 100)
+                
+        # 5. Finalizar
+        progress_callback.emit("Proceso finalizado", 100)
         completion_callback.emit(resultados)
-    
+
     except Exception as e:
-        error_callback.emit(f"Error general: {str(e)}")
-        print(f"Error en automatizar_radicacion_logic: {e}")
+        error_callback.emit(f"Error General: {str(e)}")
 
 
-def llenar_formulario_radicacion_sync(page, serie, numero, datos_pdf, 
-                                      fecha_notificacion, ruta_pdf):
+def llenar_formulario_radicacion_sync(page, serie, numero, datos_pdf, fecha, ruta_pdf):
     """
-    Llena el formulario de radicación de forma sincrónica.
+    Llena los campos en la web.
+    Maneja excepciones de listas desplegables y alertas de sistema.
+    """
     
-    Args:
-        page: Página de Playwright
-        serie: Serie de la factura (ej. 'FECR')
-        numero: Número de la factura (ej. '340375')
-        datos_pdf: Diccionario con datos extraídos del PDF
-        fecha_notificacion: Fecha de notificación
-        ruta_pdf: Ruta al archivo PDF para subir
-    """
-    # 1. Llenar Serie
+    # 1. Serie y Factura
     page.fill('#serie', serie)
-    
-    # 2. Llenar Número de Factura
     page.fill('#num_factura', numero)
-    
-    # 3. Presionar Enter o Tab para trigger de carga de datos
+    # Importante: Presionar TAB para que la página busque la factura
     page.press('#num_factura', 'Tab')
+    page.wait_for_timeout(2000) 
     
-    # 4. Esperar que carguen los datos (esperar un momento)
-    page.wait_for_timeout(2000)
-    
-    # 5. Manejar popup de duplicado si aparece
+    # 2. Manejo Popup "Factura duplicada" (Si existe)
+    # A veces sale un popup que hay que confirmar para seguir glosando
     try:
-        boton_aceptar = page.locator('#awn-confirm-ok')
-        boton_aceptar.wait_for(timeout=3000)
-        boton_aceptar.click()
-        print("  → Popup de duplicado detectado y aceptado")
-        page.wait_for_timeout(1000)
-    except PlaywrightTimeout:
-        # No apareció el popup, continuar normalmente
-        pass
+        popup_ok = page.locator('#awn-confirm-ok')
+        if popup_ok.is_visible(timeout=1500):
+            popup_ok.click()
+            page.wait_for_timeout(1000)
+    except: pass
     
-    # 6. Esperar a que aparezca el saldo en cartera
+    # 3. Leer "Saldo en Cartera" (Para lógica de devoluciones)
+    saldo_cartera = 0
     try:
-        page.wait_for_selector('span:has-text("Saldo en Cartera")', timeout=5000)
-    except PlaywrightTimeout:
-        print("  ⚠ Advertencia: No se encontró el saldo en cartera")
+        lbl_saldo = page.locator('span:has-text("Saldo en Cartera")').first
+        if lbl_saldo.is_visible():
+            txt_saldo = lbl_saldo.text_content()
+            saldo_cartera = limpiar_valor(txt_saldo)
+    except: pass
+
+    # 4. Determinar Etiqueta y Valor
+    # Valor del PDF vs Saldo
+    valor_glosa = datos_pdf['valor_objecion']
     
-    # 7. Obtener saldo de cartera del sistema
-    saldo_cartera = None
-    try:
-        saldo_element = page.locator('span:has-text("Saldo en Cartera")').first
-        saldo_text = saldo_element.text_content()
-        
-        # Extraer el valor numérico: "Saldo en Cartera: $ 27.400" → 27400
-        match = re.search(r'\$\s*&nbsp;\s*([\d,.]+)', saldo_text)
-        if not match:
-            match = re.search(r'\$\s*([\d,.]+)', saldo_text)
-        
-        if match:
-            valor_str = match.group(1).replace(',', '').replace('.', '')
-            saldo_cartera = float(valor_str)
-            print(f"  → Saldo en cartera: ${saldo_cartera:,.0f}")
-    except Exception as e:
-        print(f"  ⚠ No se pudo obtener saldo en cartera: {e}")
-    
-    # 8. Determinar Tipo de Glosa y Valor Glosa según lógica de negocio
-    if not datos_pdf['tiene_valor']:
-        # Caso 1a: Devolución (PDF sin valor de objeción - carta/oficio)
-        tipo_glosa = 'Devolución'
-        valor_glosa = saldo_cartera if saldo_cartera else 0
-        print(f"  → Tipo: Devolución (sin valor en PDF), Valor: ${valor_glosa:,.0f}")
-    elif datos_pdf.get('es_devolucion_simple', False):
-        # Caso 1b: Devolución Simple (Oficio con valor detectado o rubro (8))
-        tipo_glosa = 'Devolución'
-        valor_glosa = datos_pdf['valor_objecion']
-        print(f"  → Tipo: Devolución (Oficio), Valor: ${valor_glosa:,.0f}")
+    # Determinamos la etiqueta textual que espera el <select>
+    label_glosa = 'Glosa Parcial' # Valor por defecto
+
+    # Lógica de prioridad
+    if datos_pdf['es_devolucion_total'] or datos_pdf['es_devolucion_simple']:
+        label_glosa = 'Devolución'
+        # Si es devolución de oficio (valor 0) usamos el saldo total
+        if valor_glosa == 0 and saldo_cartera > 0:
+            valor_glosa = saldo_cartera
+            
     elif datos_pdf['es_gt']:
-        # Caso 2: GT - Glosa Total (cuando dice "(8) Devoluciones" en el rubro)
-        tipo_glosa = 'GT'
-        valor_glosa = datos_pdf['valor_objecion']
-        print(f"  → Tipo: GT (rubro '(8) Devoluciones'), Valor: ${valor_glosa:,.0f}")
-    elif datos_pdf['es_devolucion_total']:
-        # Caso 3: Devolución Total (TODOS los ítems al 100% de objeción)
-        tipo_glosa = 'Devolución'
-        valor_glosa = datos_pdf['valor_objecion']
-        print(f"  → Tipo: Devolución Total (todos los ítems al 100%), Valor: ${valor_glosa:,.0f}")
-    elif datos_pdf['es_glosa_parcial']:
-        # Caso 4: Glosa Parcial (mezcla de ítems con y sin objeción)
-        tipo_glosa = 'Glosa Parcial'
-        valor_glosa = datos_pdf['valor_objecion']
-        print(f"  → Tipo: Glosa Parcial (mezcla de ítems), Valor: ${valor_glosa:,.0f}")
-    else:
-        # Caso por defecto: Glosa Parcial
-        tipo_glosa = 'Glosa Parcial'
-        valor_glosa = datos_pdf['valor_objecion'] if datos_pdf['valor_objecion'] else 0
-        print(f"  → Tipo: Glosa Parcial (por defecto), Valor: ${valor_glosa:,.0f}")
+        # IMPORTANTE: Aquí solucionamos el error de "GT".
+        # La página usualmente espera "Glosa Total"
+        label_glosa = 'Glosa Total' 
     
-    # 9. Llenar Valor Glosa
+    elif datos_pdf['es_glosa_parcial']:
+        label_glosa = 'Glosa Parcial'
+
+    # 5. Escribir Valor
     page.fill('#vr_glosa', str(int(valor_glosa)))
     
-    # 10. Seleccionar Tipo de Glosa
-    page.select_option('#gl_tipo', label=tipo_glosa)
+    # 6. Seleccionar en Combo Box (Con Reintentos)
+    # Intenta seleccionar 'Glosa Total', si falla intenta 'GT', etc.
+    try:
+        # Intento A: Nombre exacto calculado
+        page.select_option('#gl_tipo', label=label_glosa)
+    except Exception:
+        print(f"Select '{label_glosa}' falló. Probando alternativas...")
+        try:
+            # Intento B: Variantes comunes
+            if 'Total' in label_glosa: 
+                # Prueba buscar si existe 'GT'
+                page.select_option('#gl_tipo', label='GT')
+            elif 'Parcial' in label_glosa:
+                page.select_option('#gl_tipo', label='GP') 
+            elif 'Devol' in label_glosa:
+                # A veces es 'Devoluciones' en plural
+                page.select_option('#gl_tipo', index=3) # Fallback por índice
+        except:
+             # Si falla todo, re-lanzamos el error original para reporte
+             raise Exception(f"No se encontró la opción '{label_glosa}' en la lista desplegable.")
+
+    # 7. Fecha y Reporte
+    page.select_option('#reporte', value='1') # 1 = Email usualmente
     
-    # 11. Seleccionar Medio de Ingreso = "Correo Electrónico" (value="1")
-    page.select_option('#reporte', value='1')
-    
-    # 12. Llenar Fecha Notificación
-    # Convertir formato si es necesario (DD/MM/YYYY → YYYY-MM-DD)
-    if '/' in fecha_notificacion:
-        partes = fecha_notificacion.split('/')
-        if len(partes) == 3:
-            fecha_formateada = f"{partes[2]}-{partes[1]}-{partes[0]}"
-        else:
-            fecha_formateada = fecha_notificacion
-    else:
-        fecha_formateada = fecha_notificacion
-    
+    # Formato fecha YYYY-MM-DD
+    fecha_formateada = fecha
+    if '/' in fecha: 
+        d, m, y = fecha.split('/')
+        fecha_formateada = f"{y}-{m}-{d}"
     page.fill('#f_ingreso', fecha_formateada)
-    
-    # 13. Llenar Observación si aplica
-    observacion = ""
-    if saldo_cartera and datos_pdf['valor_objecion']:
-        if saldo_cartera < datos_pdf['valor_objecion']:
-            observacion = "Carta glosa por mayor valor"
-            print(f"  → Observación: {observacion}")
-    
-    if observacion:
-        page.fill('#message', observacion)
-    
-    # 14. Subir archivo PDF
+
+    # 8. Observación Automática
+    if saldo_cartera > 0 and valor_glosa > saldo_cartera:
+        page.fill('#message', "Glosa supera el saldo en cartera (Auto)")
+
+    # 9. Subir PDF
     page.set_input_files('#file_input', ruta_pdf)
-    print(f"  → Archivo subido: {os.path.basename(ruta_pdf)}")
     
-    # 15. Esperar un momento antes de guardar
+    # 10. Guardar
     page.wait_for_timeout(1000)
-    
-    # 16. Hacer clic en Guardar
-    print("  → Haciendo clic en Guardar...")
     page.click('#buttonSaveObject')
     
-    # 17. Esperar y verificar confirmación del sistema
-    print("  → Esperando confirmación del sistema...")
+    # 11. Validación Post-Guardado (Detección de errores del sistema)
+    page.wait_for_timeout(2000) # Dar tiempo al backend
+    
     try:
-        # Esperar mensaje de éxito (ajustar selector según el sistema)
-        # Puede ser un alert, un mensaje en pantalla, o redirección
-        page.wait_for_timeout(2000)
+        # Busca alertas rojas en pantalla
+        alerta = page.locator('.alert-danger, .error, div[class*="danger"]').first
         
-        # Verificar si hay algún mensaje de error
-        try:
-            error_msg = page.locator('.error, .alert-danger, [class*="error"]').first
-            if error_msg.is_visible(timeout=1000):
-                error_text = error_msg.text_content()
-                raise Exception(f"Error del sistema: {error_text}")
-        except PlaywrightTimeout:
-            # No hay mensaje de error, continuar
-            pass
-        
-        # Esperar un poco más para asegurar que se procesó
-        page.wait_for_timeout(2000)
-        
-        print(f"  ✓ Formulario guardado exitosamente")
-        
-    except Exception as e:
-        print(f"  ⚠ Advertencia al verificar guardado: {e}")
-        # Esperar un poco más por si acaso
-        page.wait_for_timeout(2000)
+        if alerta.is_visible(timeout=1000):
+            texto_error = alerta.text_content().strip()
+            # Si el error es solo el nombre del archivo (ej: "FECR123.pdf") suele ser rechazo por duplicado
+            if texto_error == os.path.basename(ruta_pdf) or "existe" in texto_error.lower():
+                raise Exception("Sistema rechazó: Archivo duplicado o ya radicado.")
+            else:
+                raise Exception(f"Sistema rechazó: {texto_error}")
+    except PlaywrightTimeout:
+        # Si no aparece alerta roja, asumimos que guardó bien
+        pass

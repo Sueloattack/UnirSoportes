@@ -35,16 +35,16 @@ class BuscadorSoportesNuevosWorker(QObject):
 
         try:
             # --- FASE 1: ESTRATEGIA A (Búsqueda por carpetas) ---
-            facturas_para_estrategia_intermedia = self._ejecutar_estrategia_a()
-
-            # --- FASE INTERMEDIA: ESTRATEGIA SOP1 (Búsqueda por patrón _SOP_1.pdf) ---
-            facturas_para_estrategia_b = []
-            if not self.esta_cancelado and facturas_para_estrategia_intermedia:
-                facturas_para_estrategia_b = self._ejecutar_nueva_estrategia_sop1(facturas_para_estrategia_intermedia)
+            facturas_para_estrategia_b = self._ejecutar_estrategia_a()
 
             # --- FASE 2: ESTRATEGIA B (Búsqueda por archivos) ---
+            facturas_para_estrategia_sop1 = []
             if not self.esta_cancelado and facturas_para_estrategia_b:
-                self._ejecutar_estrategia_b(facturas_para_estrategia_b)
+                facturas_para_estrategia_sop1 = self._ejecutar_estrategia_b(facturas_para_estrategia_b)
+
+            # --- FASE 1.5 (FINAL): ESTRATEGIA SOP1 (Búsqueda por patrón _SOP_1.pdf) ---
+            if not self.esta_cancelado and facturas_para_estrategia_sop1:
+                self._ejecutar_nueva_estrategia_sop1(facturas_para_estrategia_sop1)
 
         except Exception as e:
             self._log(f"<b>ERROR CRÍTICO:</b> {e}", COLOR_ERROR)
@@ -142,7 +142,7 @@ class BuscadorSoportesNuevosWorker(QObject):
     def _ejecutar_nueva_estrategia_sop1(self, facturas_a_buscar: list[str]):
         self._log("<br><b>--- FASE 1.5: Iniciando Estrategia SOP1 (Búsqueda por Patrón _SOP_1) ---</b>", COLOR_INFO)
         self._log("Creando índice de archivos para SOP1... Esto puede tardar un momento.", COLOR_INFO)
-        self.progreso_actualizado.emit("Escaneando archivos (Fase 1.5)...", 50)
+        self.progreso_actualizado.emit("Escaneando archivos (Fase 1.5)...", 90)
 
         indice_archivos = {}
         for dirpath, _, filenames in os.walk(self.dir_busqueda):
@@ -162,8 +162,8 @@ class BuscadorSoportesNuevosWorker(QObject):
                 self.fallos_lista.append(f"{factura_limpia} (cancelado)")
                 continue
 
-            # La barra de progreso se moverá en un rango pequeño, ya que es una fase intermedia
-            porcentaje = 50 + ((i + 1) / total_facturas) * 10
+            # La barra de progreso se moverá en un rango pequeño, ya que es la fase final
+            porcentaje = 90 + ((i + 1) / total_facturas) * 10
             self.progreso_actualizado.emit(f"Fase 1.5: {factura_limpia}", porcentaje)
             self._log(f"<br><b>Procesando (SOP1): {factura_limpia}</b>", COLOR_INFO)
 
@@ -193,7 +193,7 @@ class BuscadorSoportesNuevosWorker(QObject):
     def _ejecutar_estrategia_b(self, facturas_a_buscar: list[str]):
         self._log("<br><b>--- FASE 2: Iniciando Estrategia B (Búsqueda por Archivos PDF) ---</b>", COLOR_INFO)
         self._log("Creando índice de archivos... Esto puede tardar un momento.", COLOR_INFO)
-        self.progreso_actualizado.emit("Escaneando archivos (Fase 2)...", 60) # Ajustado para empezar después de la fase 1.5
+        self.progreso_actualizado.emit("Escaneando archivos (Fase 2)...", 50)
 
         indice_archivos = {}
         for dirpath, _, filenames in os.walk(self.dir_busqueda):
@@ -204,6 +204,7 @@ class BuscadorSoportesNuevosWorker(QObject):
         
         self._log(f"Se indexaron {len(indice_archivos)} nombres de archivos PDF únicos.", COLOR_SUCCESS)
         
+        facturas_no_encontradas = []
         total_facturas_b = len(facturas_a_buscar)
         for i, factura_input in enumerate(facturas_a_buscar):
             factura_limpia = factura_input.strip()
@@ -211,15 +212,15 @@ class BuscadorSoportesNuevosWorker(QObject):
                 self.fallos_lista.append(f"{factura_limpia} (cancelado)")
                 continue
 
-            porcentaje = 60 + ((i + 1) / total_facturas_b) * 40 # La fase 2 ocupa el 40% restante
+            porcentaje = 50 + ((i + 1) / total_facturas_b) * 40 # La fase 2 ocupa el 40%
             self.progreso_actualizado.emit(f"Fase 2: {factura_limpia}", porcentaje)
             self._log(f"<br><b>Procesando (B): {factura_limpia}</b>", COLOR_INFO)
 
             rutas_encontradas = indice_archivos.get(factura_limpia.lower())
 
             if not rutas_encontradas:
-                self._log("-> No se encontró archivo PDF con ese nombre.", COLOR_WARNING)
-                self.fallos_lista.append(f"{factura_limpia} (archivo no encontrado)")
+                self._log("-> No se encontró archivo PDF con ese nombre. Pasando a Estrategia SOP1.", COLOR_WARNING)
+                facturas_no_encontradas.append(factura_limpia)
                 continue
 
             archivo_encontrado = max(rutas_encontradas, key=os.path.getmtime) # Usar el más reciente
@@ -234,6 +235,8 @@ class BuscadorSoportesNuevosWorker(QObject):
 
             self._copiar_soporte_desde_archivo(archivo_encontrado, ruta_destino_especifica, factura_limpia)
             self.exitos_lista.append(f"{factura_limpia} (por archivo)")
+
+        return facturas_no_encontradas
 
     def _es_carpeta_valida(self, ruta_carpeta: str) -> bool:
         """Verifica si una carpeta contiene solo archivos con extensiones permitidas."""

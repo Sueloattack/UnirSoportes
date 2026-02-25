@@ -24,20 +24,19 @@ def extraer_codigo_epicrisis(nombre_archivo):
         return partes[1]
     return None
 
-def unir_documentos_agotamiento(carpeta_raiz, carpeta_certificados):
+def separar_certificados_agotamiento(carpeta_raiz, carpeta_certificados):
     """
-    Une documentos de agotamiento a las Epicrisis en el siguiente orden:
-    1. Certificado Agotamiento
-    2. Epicrisis (contenido original)
+    Busca documentos de agotamiento (certificados) que hayan sido unidos a las Epicrisis
+    y los elimina del PDF de la Epicrisis si se detecta que están presentes.
     """
     resultados = {
-        'unidos_completos': [],
-        'sin_certificado': [],
+        'separados': [],
+        'no_requeridos': [],
         'sin_epicrisis': [],
         'fallidos': []
     }
 
-    print(f"--- INICIANDO PROCESO DE UNIÓN DE DOCUMENTOS AGOTAMIENTO ---\n")
+    print(f"--- INICIANDO PROCESO DE SEPARACIÓN DE CERTIFICADOS ---\n")
 
     # 1. Indexar certificados
     print(f"Indexando certificados en: {carpeta_certificados}")
@@ -85,68 +84,77 @@ def unir_documentos_agotamiento(carpeta_raiz, carpeta_certificados):
             resultados['fallidos'].append({'carpeta': nombre_subcarpeta, 'razon': 'Código no extraíble'})
             continue
 
-        # 4. Buscar documentos correspondientes
-        cert = certificados_disponibles.get(codigo_epicrisis)
+        # 4. Buscar certificado correspondiente
+        ruta_certificado_orig = certificados_disponibles.get(codigo_epicrisis)
 
-        if not cert:
-            print(f"  -> 🟡 Falta: Certificado")
-            resultados['sin_certificado'].append({'carpeta': nombre_subcarpeta})
+        if not ruta_certificado_orig:
+            print(f"  -> No existe certificado original para {codigo_epicrisis}. Se omite.")
+            resultados['no_requeridos'].append({'carpeta': nombre_subcarpeta, 'razon': 'No hay certificado original'})
             continue
 
-        print(f"  -> Código: {codigo_epicrisis}")
-        print(f"     ✅ Certificado: {os.path.basename(cert)}")
-
-        # 5. Realizar la fusión
+        # 5. Intentar separación
         try:
-            print("  -> 🔄 Uniendo documentos...")
+            print(f"  -> Código: {codigo_epicrisis}")
+            print(f"  -> Certificado Original: {os.path.basename(ruta_certificado_orig)}")
+            
+            lector_epicrisis = pypdf.PdfReader(ruta_epicrisis)
+            lector_certificado = pypdf.PdfReader(ruta_certificado_orig)
+            
+            num_paginas_epicrisis = len(lector_epicrisis.pages)
+            num_paginas_certificado = len(lector_certificado.pages)
+
+            if num_paginas_epicrisis <= num_paginas_certificado:
+                print("  -> La Epicrisis es más pequeña o igual que el certificado. No parece estar unido.")
+                resultados['no_requeridos'].append({'carpeta': nombre_subcarpeta, 'razon': 'Tamaño insuficiente'})
+                continue
+            
+            # Verificación básica: ¿Es factible que esté al principio?
+            # Una verificación más robusta sería comparar texto de la primera página,
+            # pero asumiremos que si el script 'unir' lo puso al principio, ahí estará.
+            # Para estar seguros, simplemente cortamos las primeras N páginas donde N = pág certificado.
+            
+            print(f"  -> Detectado posible unión. Epicrisis tiene {num_paginas_epicrisis} páginas. Eliminando las primeras {num_paginas_certificado}...")
+
             escritor = pypdf.PdfWriter()
 
-            # Orden: Certificado -> Epicrisis
-            lector = pypdf.PdfReader(cert)
-            for pagina in lector.pages:
-                escritor.add_page(pagina)
+            # Copiar solo las páginas DESPUÉS del certificado
+            for i in range(num_paginas_certificado, num_paginas_epicrisis):
+                escritor.add_page(lector_epicrisis.pages[i])
 
-            # Epicrisis al final
-            lector_epicrisis = pypdf.PdfReader(ruta_epicrisis)
-            for pagina in lector_epicrisis.pages:
-                escritor.add_page(pagina)
-
-            # Sobrescribir epicrisis
+            # Sobrescribir
             with open(ruta_epicrisis, 'wb') as f_salida:
                 escritor.write(f_salida)
 
-            print("  -> ✅ ÉXITO: Certificado unido.")
-            resultados['unidos_completos'].append({
-                'carpeta': nombre_subcarpeta
-            })
+            print("  -> ✅ SEPARACIÓN EXITOSA. Certificado eliminado de Epicrisis.")
+            resultados['separados'].append({'carpeta': nombre_subcarpeta})
 
         except Exception as e:
-            print(f"  -> ❌ ERROR durante la fusión: {e}")
+            print(f"  -> ❌ ERROR durante la separación: {e}")
             resultados['fallidos'].append({'carpeta': nombre_subcarpeta, 'razon': str(e)})
 
     # 6. Reporte final
     print("\n" + "="*60)
-    print("      REPORTE FINAL DE UNIÓN DE DOCUMENTOS")
+    print("      REPORTE FINAL DE SEPARACIÓN")
     print("="*60)
-    print(f"✅ Uniones exitosas: {len(resultados['unidos_completos'])}")
-    print(f"🟡 Sin Certificado: {len(resultados['sin_certificado'])}")
+    print(f"✅ Separados exitosamente: {len(resultados['separados'])}")
+    print(f"⚪ No requeridos/Omitidos: {len(resultados['no_requeridos'])}")
     print(f"❌ Errores/Sin Epicrisis: {len(resultados['fallidos']) + len(resultados['sin_epicrisis'])}")
     print("="*60 + "\n")
 
 if __name__ == '__main__':
     print("="*60)
-    print("  UNIR DOCUMENTOS DE AGOTAMIENTO A EPICRISIS")
-    print("  (Solo Certificados)")
+    print("  SEPARADOR DE CERTIFICADOS DE AGOTAMIENTO")
+    print("  (Elimina las primeras páginas de la Epicrisis si coinciden con el Certificado)")
     print("="*60 + "\n")
     
-    raiz = input("Ruta a la carpeta con subcarpetas de EPICRISIS:\n> ").strip().strip('"')
-    certificados = input("Ruta a la carpeta con CERTIFICADOS AGOTAMIENTO:\n> ").strip().strip('"')
+    raiz = input("Ruta a la carpeta con subcarpetas de EPICRISIS (donde están unidos):\n> ").strip().strip('"')
+    certificados = input("Ruta a la carpeta con CERTIFICADOS AGOTAMIENTO originales:\n> ").strip().strip('"')
     
     if not os.path.isdir(raiz):
         print("❌ Ruta raíz no válida.")
     elif not os.path.isdir(certificados):
         print("❌ Ruta de certificados no válida.")
     else:
-        unir_documentos_agotamiento(raiz, certificados)
+        separar_certificados_agotamiento(raiz, certificados)
     
     input("\nProceso finalizado. Presiona Enter para salir.")

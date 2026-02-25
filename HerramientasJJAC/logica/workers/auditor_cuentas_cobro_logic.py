@@ -58,7 +58,12 @@ class AuditorCuentasCobroWorker(QObject):
             highlighted_unique_ids = set()
             for item in all_occurrences:
                 if self.esta_cancelado: break
-                if item['number'] in folder_numbers:
+                # Normalizar el número de factura del PDF para coincidir con la llave de carpeta
+                invoice_num_str = item['number']
+                # Intentar normalizar quitando ceros a la izquierda si es numérico
+                normalized_invoice_num = str(int(invoice_num_str)) if invoice_num_str.isdigit() else invoice_num_str
+                
+                if normalized_invoice_num in folder_numbers:
                     highlighted_unique_ids.add(item['id'])
                     page = doc[item['page_num']]
                     color = HIGHLIGHT_COLOR_REPETED_FOUND if item['id'] in repeated_invoice_ids else HIGHLIGHT_COLOR_UNIQUE_FOUND
@@ -97,8 +102,10 @@ class AuditorCuentasCobroWorker(QObject):
             for item in unique_invoices_dict.values():
                 if item.get('status', '').upper() == 'AI':
                     numero_factura = item.get('number')
-                    if numero_factura in folders_info_map:
-                        nombre_carpeta = folders_info_map[numero_factura]
+                    normalized_numero = str(int(numero_factura)) if numero_factura and numero_factura.isdigit() else numero_factura
+                    
+                    if normalized_numero in folders_info_map:
+                        nombre_carpeta = folders_info_map[normalized_numero]
                         ruta_completa = os.path.join(self.folders_path, nombre_carpeta)
                         facturas_ai_con_carpeta.append(ruta_completa)
             
@@ -133,9 +140,14 @@ class AuditorCuentasCobroWorker(QObject):
         for item_name in os.listdir(path):
             full_path = os.path.join(path, item_name)
             if os.path.isdir(full_path):
-                match = re.match(r"^\d+", item_name)
+                # Utilizar strip() para quitar espacios al inicio/final
+                clean_name = item_name.strip()
+                # Buscar número al inicio
+                match = re.match(r"^\d+", clean_name)
                 if match:
-                    folders_info[match.group(0)] = item_name
+                    # Normalizar a entero y luego string para quitar ceros a la izquierda (e.g. "00123" -> "123")
+                    number_key = str(int(match.group(0)))
+                    folders_info[number_key] = item_name
         return folders_info
 
     def _find_invoices_from_words(self, doc):
