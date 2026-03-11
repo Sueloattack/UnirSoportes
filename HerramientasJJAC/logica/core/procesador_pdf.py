@@ -1,7 +1,17 @@
-# logica/procesador_pdf.py
 import pypdf
 import os
 import re
+
+def normalizar_ruta_pdf(ruta):
+    """
+    Devuelve la ruta con la extensión .pdf en minúsculas.
+    Si la ruta original terminaba en .PDF (o cualquier variante), 
+    la nueva ruta tendrá .pdf.
+    """
+    base, ext = os.path.splitext(ruta)
+    if ext.lower() == '.pdf' and ext != '.pdf':
+        return base + '.pdf'
+    return ruta
 
 def _obtener_texto_de_pagina(pagina):
     """Extrae y limpia el texto de una página PDF."""
@@ -53,24 +63,39 @@ def verificar_fusion_por_contenido(ruta_pdf_destino, ruta_pdf_fuente, paginas_a_
 def fusionar_pdfs_en_destino(ruta_pdf_destino, rutas_pdf_fuentes):
     """
     Une una lista de PDFs (fuentes) a un PDF existente (destino) usando PdfWriter.
-    El archivo destino es SOBRESCRITO.
+    El archivo destino es SOBRESCRITO y se asegura la extensión .pdf en minúsculas.
     """
+    ruta_normalizada = normalizar_ruta_pdf(ruta_pdf_destino)
     escritor = pypdf.PdfWriter()
 
-    lector_destino = pypdf.PdfReader(ruta_pdf_destino)
-    for pagina in lector_destino.pages:
-        escritor.add_page(pagina)
-
-    for ruta in rutas_pdf_fuentes:
-        lector_fuente = pypdf.PdfReader(ruta)
-        for pagina in lector_fuente.pages:
+    with open(ruta_pdf_destino, 'rb') as f_dest:
+        lector_destino = pypdf.PdfReader(f_dest)
+        for pagina in lector_destino.pages:
             escritor.add_page(pagina)
 
-    with open(ruta_pdf_destino, 'wb') as archivo_salida:
+    for ruta in rutas_pdf_fuentes:
+        with open(ruta, 'rb') as f_src:
+            lector_fuente = pypdf.PdfReader(f_src)
+            for pagina in lector_fuente.pages:
+                escritor.add_page(pagina)
+
+    # Si la ruta es diferente solo en mayúsculas/minúsculas, en Windows
+    # debemos tener cuidado. Eliminamos el original si es distinto.
+    if ruta_normalizada != ruta_pdf_destino:
+        if os.path.exists(ruta_pdf_destino):
+            try:
+                os.remove(ruta_pdf_destino)
+            except Exception as e:
+                # Si falla borrar, intentamos renombrar primero 
+                # o simplemente intentar escribir (a veces funciona, a veces no)
+                print(f"Advertencia: No se pudo eliminar {ruta_pdf_destino}: {e}")
+
+    with open(ruta_normalizada, 'wb') as archivo_salida:
         escritor.write(archivo_salida)
 
 def unir_pdfs(rutas_pdf_fuentes, ruta_pdf_salida):
-    """ Une lista de PDFs """
+    """ Une lista de PDFs asegurando extensión .pdf en minúsculas """
+    ruta_normalizada = normalizar_ruta_pdf(ruta_pdf_salida)
     escritor = pypdf.PdfWriter()
 
     for ruta in rutas_pdf_fuentes:
@@ -83,8 +108,15 @@ def unir_pdfs(rutas_pdf_fuentes, ruta_pdf_salida):
                 print(f"Error leyendo {ruta}: {e}")
                 continue
 
-    with open(ruta_pdf_salida, 'wb') as archivo_salida:
+    with open(ruta_normalizada, 'wb') as archivo_salida:
         escritor.write(archivo_salida)
+    
+    # Si la ruta de salida original era diferente y existe, la limpiamos (poco probable en esta función pero por consistencia)
+    if ruta_normalizada != ruta_pdf_salida and os.path.exists(ruta_pdf_salida):
+        try:
+            os.remove(ruta_pdf_salida)
+        except Exception:
+            pass
 
 def extraer_codigo_factura(ruta_pdf_liq):
     """

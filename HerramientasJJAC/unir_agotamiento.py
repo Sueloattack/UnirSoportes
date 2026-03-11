@@ -111,9 +111,18 @@ def unir_documentos_agotamiento(carpeta_raiz, carpeta_certificados):
             for pagina in lector_epicrisis.pages:
                 escritor.add_page(pagina)
 
-            # Sobrescribir epicrisis
-            with open(ruta_epicrisis, 'wb') as f_salida:
+            # Sobrescribir epicrisis con extensión .pdf minúscula
+            base, ext = os.path.splitext(ruta_epicrisis)
+            ruta_salida = base + ".pdf"
+            
+            with open(ruta_salida, 'wb') as f_salida:
                 escritor.write(f_salida)
+            
+            if ruta_salida != ruta_epicrisis and os.path.exists(ruta_epicrisis):
+                try:
+                    os.remove(ruta_epicrisis)
+                except Exception:
+                    pass
 
             print("  -> ✅ ÉXITO: Certificado unido.")
             resultados['unidos_completos'].append({

@@ -83,9 +83,18 @@ def unir_respuestas_a_epicrisis_por_nombre(carpeta_raiz, carpeta_respuestas):
                 for pagina in lector_epicrisis.pages:
                     escritor.add_page(pagina)
 
-                # Sobrescribir el archivo epicrisis de destino
-                with open(ruta_epicrisis_destino, 'wb') as f_salida:
+                # Sobrescribir el archivo epicrisis de destino con la extensión .pdf minúscula
+                base, ext = os.path.splitext(ruta_epicrisis_destino)
+                ruta_salida = base + ".pdf"
+                
+                with open(ruta_salida, 'wb') as f_salida:
                     escritor.write(f_salida)
+
+                if ruta_salida != ruta_epicrisis_destino and os.path.exists(ruta_epicrisis_destino):
+                    try:
+                        os.remove(ruta_epicrisis_destino)
+                    except Exception:
+                        pass
 
                 print("  -> ✅ ÉXITO: Los archivos fueron unidos correctamente.")
                 resultados['unidos'].append({'carpeta': nombre_subcarpeta, 'archivo': nombre_epicrisis_destino})

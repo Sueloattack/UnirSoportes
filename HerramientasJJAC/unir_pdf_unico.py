@@ -64,8 +64,17 @@ def unir_pdf_unico_a_epicras(carpeta_raiz, ruta_pdf_a_unir):
                 escritor.add_page(pagina)
 
             # 3. Sobrescribir
-            with open(ruta_epicrisis, 'wb') as f_salida:
+            base, ext = os.path.splitext(ruta_epicrisis)
+            ruta_salida = base + ".pdf"
+            
+            with open(ruta_salida, 'wb') as f_salida:
                 escritor.write(f_salida)
+            
+            if ruta_salida != ruta_epicrisis and os.path.exists(ruta_epicrisis):
+                try:
+                    os.remove(ruta_epicrisis)
+                except Exception:
+                    pass
             
             print(f"  -> ✅ ÉXITO.")
             contador_exitos += 1

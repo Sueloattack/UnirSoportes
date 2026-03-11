@@ -259,10 +259,20 @@ class UnirSoportesWorker(QObject):
                 for pagina in lector_soporte.pages:
                     escritor.add_page(pagina)
 
-            with open(epicrisis['path'], 'wb') as archivo_salida:
+            ruta_salida = procesador_pdf.normalizar_ruta_pdf(epicrisis['path'])
+            with open(ruta_salida, 'wb') as archivo_salida:
                 escritor.write(archivo_salida)
-                
-            mensaje = f"¡Unión ADRES exitosa! Se unió Respuesta + Epicrisis + {len(soportes)} soporte(s) en '{os.path.basename(epicrisis['path'])}'."
+            
+            # Si el nombre cambió (por la extensión), el original ya no es "epicrisis['path']" 
+            # pero en este flujo ADRES estamos sobrescribiendo la epicrisis original.
+            # Si la extensión cambió, eliminamos el .PDF antiguo.
+            if ruta_salida != epicrisis['path'] and os.path.exists(epicrisis['path']):
+                try:
+                    os.remove(epicrisis['path'])
+                except Exception:
+                    pass
+
+            mensaje = f"¡Unión ADRES exitosa! Se unió Respuesta + Epicrisis + {len(soportes)} soporte(s) en '{os.path.basename(ruta_salida)}'."
             resultados['exitosos'].append({"carpeta": nombre_carpeta, "razon": mensaje})
 
         except Exception as e:

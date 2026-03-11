@@ -101,24 +101,25 @@ def analizar_carta_narrativa(texto):
     return {'valor': limpiar_valor(m.group(1)) if m else 0.0, 'encontrado': bool(m)}
 
 def extraer_datos_carta_glosa(ruta_pdf):
-    texto_completo = ""
+    texto_parts = []
     try:
         with pdfplumber.open(ruta_pdf) as pdf:
             for page in pdf.pages:
                 txt = page.extract_text()
-                if txt: texto_completo += txt + "\n"
+                if txt: texto_parts.append(str(txt))
     except Exception as e:
         return _crear_respuesta_error(f"Error lectura PDF: {e}")
+    texto_completo = "\n".join(texto_parts)
 
     # Verificar si es imagen (Scaneado)
-    if len(texto_completo.strip()) < 50:
+    if len(str(texto_completo).strip()) < 50:
         return _crear_respuesta_error("PDF es imagen/escaneado", es_imagen=True)
 
     res = {
-        'valor_objecion': 0.0, 'clasificacion': None, 'tiene_valor': False,
+        'valor_objecion': 0.0, 'clasificacion': "", 'tiene_valor': False,
         'es_devolucion_total': False, 'es_glosa_parcial': False, 
         'es_gt': False, 'es_devolucion_simple': False,
-        'es_pdf_escaneado': False, 'error': None,
+        'es_pdf_escaneado': False, 'error': "",
         'items_detectados': []
     }
     
@@ -136,37 +137,40 @@ def extraer_datos_carta_glosa(ruta_pdf):
         hay_ceros = lectura_tabla['hay_porcentaje_cero']
         todos_cien = lectura_tabla['todos_son_cien']
         
+        v_obj = res.get('valor_objecion', 0.0)
+        v_obj_float = float(v_obj) if isinstance(v_obj, (int, float, str)) else 0.0
+        
         # Clasificación
         if pagar > 100: 
             res['es_glosa_parcial'] = True
         elif hay_ceros:
             # Caso crítico: Paga $0 pero hay items al 0.00% aceptados
             res['es_glosa_parcial'] = True
-        elif todos_cien and res['valor_objecion'] > 0:
+        elif todos_cien and v_obj_float > 0:
             res['es_gt'] = True
         else:
-            if res['valor_objecion'] > 0: res['es_gt'] = True
+            if v_obj_float > 0: res['es_gt'] = True
 
     # --- ESTRATEGIA 2: FORMATO DEVOLUCIÓN ---
     elif True: 
         lectura_dev = analizar_formato_devolucion_simple(texto_completo)
         if lectura_dev['encontrado']:
-            res['valor_objecion'] = lectura_dev['valor']
+            res['valor_objecion'] = float(lectura_dev.get('valor', 0.0))
             res['tiene_valor'] = True
-            if "devolucion" in texto_completo.lower() or "vigencia" in texto_completo.lower():
+            if "devolucion" in str(texto_completo).lower() or "vigencia" in str(texto_completo).lower():
                 res['es_devolucion_total'] = True
             else: res['es_gt'] = True
         else:
             # --- ESTRATEGIA 3: CARTA NARRATIVA (COEX) ---
             lectura_narr = analizar_carta_narrativa(texto_completo)
             if lectura_narr['encontrado']:
-                res['valor_objecion'] = lectura_narr['valor']
+                res['valor_objecion'] = float(lectura_narr.get('valor', 0.0))
                 res['tiene_valor'] = True
                 res['es_devolucion_simple'] = True
-            elif "devolucion" in texto_completo.lower() and not res['tiene_valor']:
+            elif "devolucion" in str(texto_completo).lower() and not res['tiene_valor']:
                 res['es_devolucion_simple'] = True # Asume saldo cartera
 
-    match_clasif = re.search(r'Clasificaci[oó]n\s*:?\s*([A-Z0-9]+)', texto_completo, re.IGNORECASE)
+    match_clasif = re.search(r'Clasificaci[oó]n\s*:?\s*([A-Z0-9]+)', str(texto_completo), re.IGNORECASE)
     if match_clasif: res['clasificacion'] = match_clasif.group(1).upper()
         
     return res
@@ -248,10 +252,13 @@ def automatizar_radicacion_logic(carpeta_pdfs, fecha_notificacion, username, pas
                         llenar_formulario_radicacion_sync(page, serie, numero, datos_pdf, fecha_notificacion, ruta_pdf)
                         
                         # -- PASO D: REGISTRAR ÉXITO --
+                        tipo_final = 'DV' if (datos_pdf['es_devolucion_total'] or datos_pdf['es_devolucion_simple']) \
+                                     else ('GT' if datos_pdf['es_gt'] else 'GP')
                         resultados['exitosos'].append({
-                            'archivo': pdf_nombre, 
+                            'archivo': pdf_nombre,
                             'valor': datos_pdf.get('valor_objecion'),
-                            'clasif': datos_pdf.get('clasificacion')
+                            'clasif': datos_pdf.get('clasificacion'),
+                            'tipo': tipo_final
                         })
                         print(f"✓ Éxito: {pdf_nombre}")
                         
@@ -269,119 +276,132 @@ def automatizar_radicacion_logic(carpeta_pdfs, fecha_notificacion, username, pas
     except Exception as e:
         error_callback.emit(f"Error General: {str(e)}")
 
-
 def llenar_formulario_radicacion_sync(page, serie, numero, datos_pdf, fecha, ruta_pdf):
-    """
-    Llena los campos en la web.
-    Maneja excepciones de listas desplegables y alertas de sistema.
-    """
     
-    # 1. Serie y Factura
-    page.fill('#serie', serie)
-    page.fill('#num_factura', numero)
-    # Importante: Presionar TAB para que la página busque la factura
-    page.press('#num_factura', 'Tab')
-    page.wait_for_timeout(2000) 
+    # 1. Serie
+    page.locator('#serie').fill(serie)
+    page.locator('#serie').dispatch_event('input')
     
-    # 2. Manejo Popup "Factura duplicada" (Si existe)
-    # A veces sale un popup que hay que confirmar para seguir glosando
-    try:
-        popup_ok = page.locator('#awn-confirm-ok')
-        if popup_ok.is_visible(timeout=1500):
-            popup_ok.click()
-            page.wait_for_timeout(1000)
-    except: pass
+    # 2. Número de factura — dispara onDocnChange() → búsquedas AJAX
+    page.locator('#num_factura').fill(numero)
+    page.locator('#num_factura').dispatch_event('input')
+    page.locator('#num_factura').dispatch_event('change')
     
-    # 3. Leer "Saldo en Cartera" (Para lógica de devoluciones)
+    # 3. Loop unificado: detectar modal AWN y/o esperar que NIT se pueble
+    nit_cargado = False
+    for intento in range(40):  # 40 * 0.5s = 20 segundos máximo
+        try:
+            # A. Intentar aceptar el modal usando JavaScript puro (bypasea overlays)
+            modal_aceptado = page.evaluate("""
+                () => {
+                    const botones = Array.from(document.querySelectorAll('button'));
+                    const btn = botones.find(b => b.textContent.trim() === 'Aceptar');
+                    if (btn && btn.offsetParent !== null) {  // offsetParent != null = es visible
+                        btn.click();
+                        return true;
+                    }
+                    return false;
+                }
+            """)
+            if modal_aceptado:
+                print(f"  → Modal de reingreso aceptado (intento {intento})")
+                page.wait_for_timeout(800)  # darle tiempo al AJAX post-aceptar
+
+            # B. Revisar si el NIT ya llegó (TAMBIÉN via JS para evitar excepciones)
+            nit_val = page.evaluate(
+                "() => document.querySelector('#nit_tercero')?.value?.trim() || ''"
+            )
+            if nit_val != '':
+                nit_cargado = True
+                print(f"  → Factura encontrada (NIT: {nit_val})")
+                break
+
+        except Exception as e:
+            print(f"  → Intento {intento}: error ignorado ({e})")
+
+        page.wait_for_timeout(500)
+
+    if not nit_cargado:
+        raise Exception(f"Timeout: La factura {serie}-{numero} no se encontró en GEMA")
+
+    # 4. Esperar que saldo de cartera deje de cargar
+    page.wait_for_timeout(800)
+
+    # 5. Leer saldo en cartera
     saldo_cartera = 0
     try:
-        lbl_saldo = page.locator('span:has-text("Saldo en Cartera")').first
-        if lbl_saldo.is_visible():
-            txt_saldo = lbl_saldo.text_content()
-            saldo_cartera = limpiar_valor(txt_saldo)
-    except: pass
+        txt = page.evaluate("""
+            () => {
+                const spans = Array.from(document.querySelectorAll('span'));
+                const s = spans.find(sp => sp.textContent.includes('Saldo en Cartera'));
+                return s ? s.textContent : '';
+            }
+        """)
+        if txt:
+            m = re.search(r'([\d.,]+)\s*$', txt.replace(' ', ''))
+            if m: saldo_cartera = limpiar_valor(m.group(1))
+    except:
+        pass
 
-    # 4. Determinar Etiqueta y Valor
-    # Valor del PDF vs Saldo
+    # 6. Calcular tipo y valor
     valor_glosa = datos_pdf['valor_objecion']
-    
-    # Determinamos la etiqueta textual que espera el <select>
-    label_glosa = 'Glosa Parcial' # Valor por defecto
+    tipo_value = 'GP'
 
-    # Lógica de prioridad
     if datos_pdf['es_devolucion_total'] or datos_pdf['es_devolucion_simple']:
-        label_glosa = 'Devolución'
-        # Si es devolución de oficio (valor 0) usamos el saldo total
+        tipo_value = 'DV'
         if valor_glosa == 0 and saldo_cartera > 0:
             valor_glosa = saldo_cartera
-            
     elif datos_pdf['es_gt']:
-        # IMPORTANTE: Aquí solucionamos el error de "GT".
-        # La página usualmente espera "Glosa Total"
-        label_glosa = 'Glosa Total' 
-    
+        tipo_value = 'GT'
     elif datos_pdf['es_glosa_parcial']:
-        label_glosa = 'Glosa Parcial'
+        tipo_value = 'GP'
 
-    # 5. Escribir Valor
-    page.fill('#vr_glosa', str(int(valor_glosa)))
-    
-    # 6. Seleccionar en Combo Box (Con Reintentos)
-    # Intenta seleccionar 'Glosa Total', si falla intenta 'GT', etc.
-    try:
-        # Intento A: Nombre exacto calculado
-        page.select_option('#gl_tipo', label=label_glosa)
-    except Exception:
-        print(f"Select '{label_glosa}' falló. Probando alternativas...")
-        try:
-            # Intento B: Variantes comunes
-            if 'Total' in label_glosa: 
-                # Prueba buscar si existe 'GT'
-                page.select_option('#gl_tipo', label='GT')
-            elif 'Parcial' in label_glosa:
-                page.select_option('#gl_tipo', label='GP') 
-            elif 'Devol' in label_glosa:
-                # A veces es 'Devoluciones' en plural
-                page.select_option('#gl_tipo', index=3) # Fallback por índice
-        except:
-             # Si falla todo, re-lanzamos el error original para reporte
-             raise Exception(f"No se encontró la opción '{label_glosa}' en la lista desplegable.")
+    print(f"  → Tipo: {tipo_value}, Valor: {valor_glosa}")
 
-    # 7. Fecha y Reporte
-    page.select_option('#reporte', value='1') # 1 = Email usualmente
-    
-    # Formato fecha YYYY-MM-DD
-    fecha_formateada = fecha
-    if '/' in fecha: 
-        d, m, y = fecha.split('/')
-        fecha_formateada = f"{y}-{m}-{d}"
-    page.fill('#f_ingreso', fecha_formateada)
+    # 7. Valor glosa
+    page.locator('#vr_glosa').fill(str(int(valor_glosa)))
+    page.locator('#vr_glosa').dispatch_event('input')
 
-    # 8. Observación Automática
-    if saldo_cartera > 0 and valor_glosa > saldo_cartera:
-        page.fill('#message', "Glosa supera el saldo en cartera (Auto)")
+    # 8. Tipo de glosa (GT / GP / DV)
+    page.locator('#gl_tipo').select_option(value=tipo_value)
+    page.locator('#gl_tipo').dispatch_event('change')
 
-    # 9. Subir PDF
-    page.set_input_files('#file_input', ruta_pdf)
-    
-    # 10. Guardar
+    # 9. Medio de ingreso
+    page.locator('#reporte').select_option(value='1')
+    page.locator('#reporte').dispatch_event('change')
     page.wait_for_timeout(1000)
-    page.click('#buttonSaveObject')
-    
-    # 11. Validación Post-Guardado (Detección de errores del sistema)
-    page.wait_for_timeout(2000) # Dar tiempo al backend
-    
+
+    # 10. Fecha
+    fecha_formateada = fecha
+    if '/' in fecha:
+        d_p, m_p, y_p = fecha.split('/')
+        fecha_formateada = f"{y_p}-{m_p}-{d_p}"
+    page.locator('#f_ingreso').fill(fecha_formateada)
+    page.locator('#f_ingreso').dispatch_event('input')
+
+    # 11. Subir PDF
+    page.set_input_files('#file_input', ruta_pdf)
+    page.wait_for_timeout(500)
+
+    # 12. Guardar e interceptar respuesta AJAX
+    with page.expect_response(
+        lambda r: 'action=saveData' in r.url,
+        timeout=20000
+    ) as resp_info:
+        page.click('#buttonSaveObject')
+
+    data = resp_info.value.json()
+
+    if not data.get('status'):
+        raise Exception(f"Sistema rechazó: {data.get('message', 'Error desconocido')}")
+
+    # 13. Esperar que el formulario se limpie (NIT vuelve a '')
     try:
-        # Busca alertas rojas en pantalla
-        alerta = page.locator('.alert-danger, .error, div[class*="danger"]').first
-        
-        if alerta.is_visible(timeout=1000):
-            texto_error = alerta.text_content().strip()
-            # Si el error es solo el nombre del archivo (ej: "FECR123.pdf") suele ser rechazo por duplicado
-            if texto_error == os.path.basename(ruta_pdf) or "existe" in texto_error.lower():
-                raise Exception("Sistema rechazó: Archivo duplicado o ya radicado.")
-            else:
-                raise Exception(f"Sistema rechazó: {texto_error}")
-    except PlaywrightTimeout:
-        # Si no aparece alerta roja, asumimos que guardó bien
-        pass
+        page.wait_for_function(
+            "document.querySelector('#nit_tercero')?.value === ''",
+            timeout=10000
+        )
+    except:
+        page.wait_for_timeout(2000)
+
+    page.wait_for_timeout(300)

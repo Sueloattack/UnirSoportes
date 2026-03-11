@@ -1,10 +1,13 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                                 QLineEdit, QGroupBox, QLabel, QDateEdit, QCheckBox,
-                                QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QMessageBox)
+                                QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
+                                QMessageBox, QFileDialog)
 from PySide6.QtCore import QThread, Qt, Signal, QDate
 from PySide6.QtGui import QColor
 from gui.common.componentes_comunes import crear_selector_carpeta
 import os
+import re
+from typing import Optional
 
 class AutomatizadorRadicacionWorker(QThread):
     """Worker thread para ejecutar la automatización en segundo plano"""
@@ -50,14 +53,16 @@ class AutomatizadorRadicacionWidget(QWidget):
     """Widget para automatizar la radicación de cartas glosas"""
     
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.worker = None
-        
-        # Colores
-        self.color_exito = QColor(46, 204, 113)      # Verde
-        self.color_error = QColor(231, 76, 60)       # Rojo
-        self.color_advertencia = QColor(243, 156, 18) # Naranja/Amarillo
-        
+        super(AutomatizadorRadicacionWidget, self).__init__(parent)
+        self.worker: Optional[AutomatizadorRadicacionWorker] = None
+        self._ultimos_resultados: dict = {}
+
+        # Colores (texto oscuro para contraste)
+        self.color_exito      = QColor(39, 174,  96)   # Verde
+        self.color_error      = QColor(192,  57,  43)  # Rojo
+        self.color_advertencia= QColor(211, 142,   0)  # Amarillo oscuro
+        self.color_texto_filas= QColor(255, 255, 255)  # Blanco
+
         self.init_ui()
     
     def init_ui(self):
@@ -127,14 +132,20 @@ class AutomatizadorRadicacionWidget(QWidget):
         self.boton_iniciar.setObjectName("BotonPrimario")
         self.boton_iniciar.clicked.connect(self.iniciar_automatizacion)
         self.boton_iniciar.setEnabled(False)
-        
+
         self.boton_cancelar = QPushButton("Detener")
         self.boton_cancelar.setObjectName("BotonSecundario")
         self.boton_cancelar.clicked.connect(self.cancelar_automatizacion)
         self.boton_cancelar.setEnabled(False)
-        
+
+        self.boton_exportar = QPushButton("📊 Exportar Resultados")
+        self.boton_exportar.setObjectName("BotonSecundario")
+        self.boton_exportar.clicked.connect(self.exportar_excel)
+        self.boton_exportar.setEnabled(False)
+
         layout_botones.addWidget(self.boton_iniciar)
         layout_botones.addWidget(self.boton_cancelar)
+        layout_botones.addWidget(self.boton_exportar)
         layout_principal.addLayout(layout_botones)
         
         # --- Progreso ---
@@ -147,19 +158,20 @@ class AutomatizadorRadicacionWidget(QWidget):
         layout_principal.addWidget(self.label_estado)
         
         # --- Resultados ---
-        grupo_resultados = QGroupBox("Resultados de la Ejecución")
-        layout_res = QVBoxLayout()
-        
         self.tabla_resultados = QTableWidget()
         self.tabla_resultados.setColumnCount(4)
-        self.tabla_resultados.setHorizontalHeaderLabels(["Nombre", "Factura", "Tipo Glosa", "Estado / Valor"])
-        
+        self.tabla_resultados.setHorizontalHeaderLabels(["Factura", "Estado", "Valor", "Tipo"])
+        self.tabla_resultados.setShowGrid(True)
+        self.tabla_resultados.setAlternatingRowColors(False)
+        self.tabla_resultados.verticalHeader().setVisible(False)  # quita la columna blanca de índice
+
         header = self.tabla_resultados.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch) 
-        
-        layout_res.addWidget(self.tabla_resultados)
-        grupo_resultados.setLayout(layout_res)
-        layout_principal.addWidget(grupo_resultados)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+        layout_principal.addWidget(self.tabla_resultados)
     
     def validar_formulario(self):
         carpeta = self.ruta_carpeta_line_edit.text()
@@ -180,11 +192,13 @@ class AutomatizadorRadicacionWidget(QWidget):
         self.progress_bar.setValue(0)
         self.set_controles_habilitados(False)
         
-        self.worker = AutomatizadorRadicacionWorker(carpeta, fecha_str, user, pwd, headless)
-        self.worker.progreso_actualizado.connect(self.actualizar_progreso)
-        self.worker.proceso_finalizado.connect(self.finalizar_proceso)
-        self.worker.error_ocurrido.connect(self.mostrar_error)
-        self.worker.start()
+        worker = AutomatizadorRadicacionWorker(carpeta, fecha_str, user, pwd, headless)
+        self.worker = worker
+        if worker is not None:
+            worker.progreso_actualizado.connect(self.actualizar_progreso)
+            worker.proceso_finalizado.connect(self.finalizar_proceso)
+            worker.error_ocurrido.connect(self.mostrar_error)
+            worker.start()
         
         self.label_estado.setText("Iniciando motor de radicación...")
 
@@ -194,105 +208,177 @@ class AutomatizadorRadicacionWidget(QWidget):
 
     def finalizar_proceso(self, resultados):
         """Maneja el fin del proceso: llena tabla y muestra popup"""
-        
-        # Contadores
-        exitosos = resultados.get('exitosos', [])
-        fallidos = resultados.get('fallidos', [])
-        advertencias = resultados.get('advertencias', [])
-        
-        count_ok = len(exitosos)
-        count_err = len(fallidos)
+        self._ultimos_resultados = resultados
+
+        exitosos    = resultados.get('exitosos', [])
+        fallidos    = resultados.get('fallidos', [])
+        advertencias= resultados.get('advertencias', [])
+
+        count_ok   = len(exitosos)
+        count_err  = len(fallidos)
         count_warn = len(advertencias)
-        total = count_ok + count_err + count_warn
+        total      = count_ok + count_err + count_warn
 
-        # --- Llenar Tabla (Éxitos) ---
-        for item in exitosos:
-            self._agregar_fila_tabla(item, "OK")
+        for item in exitosos:     self._agregar_fila_tabla(item, "OK")
+        for item in advertencias: self._agregar_fila_tabla(item, "WARN")
+        for item in fallidos:     self._agregar_fila_tabla(item, "ERR")
 
-        # --- Llenar Tabla (Advertencias/Saltados) ---
-        for item in advertencias:
-             self._agregar_fila_tabla(item, "WARN")
-             
-        # --- Llenar Tabla (Fallidos) ---
-        for item in fallidos:
-            self._agregar_fila_tabla(item, "ERR")
-
-        # Restaurar UI
         self.progress_bar.setValue(100)
-        self.label_estado.setText(f"Fin: {count_ok} radicados, {count_warn} saltados, {count_err} errores.")
+        ok_txt   = f"✅ {count_ok} radicados" if count_ok   else ""
+        warn_txt = f"⚠️ {count_warn} saltados" if count_warn else ""
+        err_txt  = f"❌ {count_err} errores"   if count_err  else ""
+        partes   = [p for p in [ok_txt, warn_txt, err_txt] if p]
+        self.label_estado.setText("  |  ".join(partes) if partes else "Sin resultados.")
+
         self.set_controles_habilitados(True)
-        
-        # --- Mostrar Mensaje Emergente (QMessageBox) ---
-        msj = f"""
-        <b>Resumen del Proceso</b>
-        <br><br>
-        <b>Total procesados:</b> {total}<br>
-        <hr>
-        ✅ <b>Exitosos:</b> {count_ok}<br>
-        ⚠️ <b>Saltados (Imágenes):</b> {count_warn}<br>
-        ❌ <b>Errores:</b> {count_err}<br>
-        """
-        QMessageBox.information(self, "Proceso Finalizado", msj)
+        self.boton_exportar.setEnabled(True)
+
+    def _hacer_item(self, texto, color_fondo):
+        """Crea un QTableWidgetItem coloreado con texto blanco."""
+        it = QTableWidgetItem(texto)
+        it.setBackground(color_fondo)
+        it.setForeground(self.color_texto_filas)
+        it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+        return it
+
+    def _colorear_fila(self, fila, color):
+        """Aplica un color de fondo a todas las celdas de una fila."""
+        for col in range(self.tabla_resultados.columnCount()):
+            it = self.tabla_resultados.item(fila, col)
+            if it:
+                it.setBackground(color)
+                it.setForeground(self.color_texto_filas)
 
     def _agregar_fila_tabla(self, item, estado_code):
         fila = self.tabla_resultados.rowCount()
         self.tabla_resultados.insertRow(fila)
-        
-        # 1. Nombre sin extensión
-        nombre_full = item['archivo']
-        nombre_clean = nombre_full.lower().replace('.pdf', '').upper()
-        
-        self.tabla_resultados.setItem(fila, 0, QTableWidgetItem(nombre_clean))
-        
-        # 2. Numero Factura / Serie
-        # Si es un error/adv a veces no trae serie/num, manejamos con get
-        factura_str = f"{item.get('serie', '')} {item.get('numero', '')}" if 'numero' in item else "-"
-        self.tabla_resultados.setItem(fila, 1, QTableWidgetItem(factura_str))
-        
+
+        nombre_arch  = item.get('archivo', '')
+        match = re.search(r'([A-Za-z]+)(\d+)', nombre_arch)
+        factura_str = f"{match.group(1).upper()}{match.group(2)}" if match else nombre_arch.upper().replace('.PDF', '')
+
         if estado_code == "OK":
-            # 3. Tipo y Valor
-            tipo_txt = f"{item.get('clasif') or 'Glosa Parcial'}" # 'GT' o 'Parcial'
-            valor = item.get('valor', 0)
-            if valor is None: valor = 0
-            
-            self.tabla_resultados.setItem(fila, 2, QTableWidgetItem(tipo_txt))
-            
-            # 4. Estado Verde
-            item_st = QTableWidgetItem(f"OK | ${valor:,.0f}")
-            item_st.setBackground(self.color_exito)
-            self.tabla_resultados.setItem(fila, 3, item_st)
-            
+            color      = self.color_exito
+            valor      = item.get('valor', 0) or 0
+            tipo_col   = item.get('tipo', 'GP')
+            estado_txt = "EXITOSO"
+            valor_txt  = f"$ {valor:,.0f}"
         elif estado_code == "WARN":
-            # Advertencia (Imágenes)
-            self.tabla_resultados.setItem(fila, 2, QTableWidgetItem("N/A"))
-            
-            razon = item.get('razon', 'Saltado')
-            item_st = QTableWidgetItem(f"⚠️ {razon}")
-            item_st.setBackground(self.color_advertencia)
-            self.tabla_resultados.setItem(fila, 3, item_st)
-            
+            color      = self.color_advertencia
+            estado_txt = "SALTADO"
+            valor_txt  = "-"
+            tipo_col   = "N/A"
         else:
-            # Error Rojo
-            self.tabla_resultados.setItem(fila, 2, QTableWidgetItem("-"))
-            
-            err_msg = item.get('error', 'Desconocido')
-            item_st = QTableWidgetItem(f"Error: {err_msg}")
-            item_st.setBackground(self.color_error)
-            self.tabla_resultados.setItem(fila, 3, item_st)
+            color      = self.color_error
+            estado_txt = "ERROR"
+            valor_txt  = item.get('error', 'Desconocido')[:30]
+            tipo_col   = "-"
+
+        self.tabla_resultados.setItem(fila, 0, self._hacer_item(factura_str, color))
+        self.tabla_resultados.setItem(fila, 1, self._hacer_item(estado_txt,  color))
+        self.tabla_resultados.setItem(fila, 2, self._hacer_item(valor_txt,   color))
+        self.tabla_resultados.setItem(fila, 3, self._hacer_item(tipo_col,    color))
 
     def mostrar_error(self, msj):
         self.label_estado.setText(f"❌ {msj}")
         QMessageBox.critical(self, "Error de Ejecución", f"Ocurrió un error:\n{msj}")
         self.set_controles_habilitados(True)
+        self.boton_exportar.setEnabled(bool(self._ultimos_resultados))
 
     def cancelar_automatizacion(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.cancelar()
-            self.worker.terminate()
+        worker = self.worker
+        if worker is not None and worker.isRunning():
+            worker.cancelar()
+            worker.terminate()
             self.label_estado.setText("Cancelado por usuario.")
             self.set_controles_habilitados(True)
+            self.boton_exportar.setEnabled(bool(self._ultimos_resultados))
+
+    def exportar_excel(self):
+        """Exporta los resultados a un archivo Excel."""
+        try:                                           # Bug 4
+            import openpyxl
+            from openpyxl.styles import PatternFill, Font, Alignment
+        except ImportError:
+            QMessageBox.critical(self, "Dependencia faltante",
+                                 "openpyxl no está instalado.\n\nEjecuta:\n  pip install openpyxl")
+            return
+
+        res  = self._ultimos_resultados
+        if not res:
+            QMessageBox.warning(self, "Sin datos", "No hay resultados para exportar.")
+            return
+
+        ruta, _ = QFileDialog.getSaveFileName(
+            self, "Guardar reporte", "resultados_radicacion.xlsx",
+            "Excel (*.xlsx)"
+        )
+        if not ruta:
+            return
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Resultados"
+
+        # Estilos
+        hdr_fill  = PatternFill("solid", fgColor="1F4E79")
+        hdr_font  = Font(bold=True, color="FFFFFF")
+        ok_fill   = PatternFill("solid", fgColor="1E8449")
+        err_fill  = PatternFill("solid", fgColor="922B21")
+        warn_fill = PatternFill("solid", fgColor="9A7D0A")
+        blanco    = Font(color="FFFFFF", bold=True)
+        num_fmt   = '"$" #,##0'   # formato numérico con $
+
+        # Encabezados — 4 columnas
+        ws.append(["Factura", "Estado", "Valor", "Tipo"])
+        for cell in ws[1]:
+            cell.fill = hdr_fill
+            cell.font = hdr_font
+            cell.alignment = Alignment(horizontal="center")
+
+        def _agregar(items, estado_label, fill_color):
+            for it in items:
+                nombre_arch = it.get('archivo', '')
+                m = re.search(r'([A-Za-z]+)(\d+)', nombre_arch)
+                factura = f"{m.group(1).upper()}{m.group(2)}" if m else nombre_arch.upper().replace('.PDF','')
+
+                if estado_label == "EXITOSO":
+                    valor_num = it.get('valor', 0) or 0
+                    tipo_txt  = it.get('tipo', 'GP')
+                else:
+                    valor_num = None
+                    tipo_txt  = it.get('razon', '') or it.get('error', '')
+
+                row_idx = ws.max_row + 1
+                ws.append([factura, estado_label, valor_num, tipo_txt])
+                for col in range(1, 5):
+                    c = ws.cell(row=row_idx, column=col)
+                    c.fill = fill_color
+                    c.font = blanco
+                    c.alignment = Alignment(horizontal="center")
+                # Columna Valor: alinear derecha y formato $
+                vc = ws.cell(row=row_idx, column=3)
+                vc.alignment = Alignment(horizontal="right")
+                if valor_num is not None:
+                    vc.number_format = num_fmt
+
+        _agregar(res.get('exitosos', []),     "EXITOSO",  ok_fill)
+        _agregar(res.get('advertencias', []), "SALTADO",  warn_fill)
+        _agregar(res.get('fallidos', []),     "ERROR",    err_fill)
+
+        # Anchos de columna
+        ws.column_dimensions['A'].width = 18
+        ws.column_dimensions['B'].width = 12
+        ws.column_dimensions['C'].width = 16
+        ws.column_dimensions['D'].width = 10
+
+        wb.save(ruta)
+        QMessageBox.information(self, "Exportado", f"Reporte guardado en:\n{ruta}")
 
     def set_controles_habilitados(self, enable):
         self.ruta_carpeta_line_edit.setEnabled(enable)
-        self.boton_iniciar.setEnabled(enable)
         self.boton_cancelar.setEnabled(not enable)
+        if enable:
+            self.validar_formulario()   # Bug 3: re-evalúa si la carpeta sigue siendo válida
+        else:
+            self.boton_iniciar.setEnabled(False)

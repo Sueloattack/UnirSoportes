@@ -67,11 +67,11 @@ class RenombradorWorker(QObject):
         self.progreso_actualizado.emit(f"<p style='color:{COLOR_DEFAULT};'>Archivo de respuesta encontrado: <b>{nombre_original}</b></p>")
         
         if self.modo == 'glosa':
-            prefijo = 'R-8002098917-'
+            prefijo = 'R-800209891-'
             if nombre_original.startswith(prefijo): return self.emit_fallo(resultados, nombre_original, "Ya tiene el prefijo 'R-8002098917-'", 'warning')
             nuevo_nombre = f"{prefijo}{nombre_original}"
         elif self.modo == 'devolucion':
-            prefijo = '8002098917-'
+            prefijo = '800209891-'
             if nombre_original.startswith(prefijo): return self.emit_fallo(resultados, nombre_original, "Ya tiene el prefijo '8002098917-'", 'warning')
             nuevo_nombre = f"{prefijo}{nombre_original}"
         else: return
