@@ -24,6 +24,9 @@ from gui.widgets.buscador_carpetas_ratificadas import BuscadorCarpetasRatificada
 from gui.widgets.buscador_soportes_conci import BuscadorSoportesConciWidget
 from gui.widgets.panel_ayuda import PanelAyudaWidget
 from gui.widgets.automatizador_radicacion import AutomatizadorRadicacionWidget
+from gui.widgets.furips_adres import FuripsAdresWidget
+from gui.widgets.epicrisis_adres import EpicrisisAdresWidget
+from gui.widgets.respuesta_glosas_salud_total import RespuestaGlosasSaludTotalWidget
 
 
 class VentanaPrincipal(QMainWindow):
@@ -102,6 +105,9 @@ class VentanaPrincipal(QMainWindow):
         self._add_widget(cat_procesamiento, "Revisor de facturas", "AUD", "widgets.auditor_cuentas_cobro", "AuditorCuentasCobroWidget")
         self._add_widget(cat_procesamiento, "Renombrar archivos", "REN", "widgets.renombrador", "RenombradorWidget")
         self._add_widget(cat_procesamiento, "Automatizador Radicación", "AUT", "widgets.automatizador_radicacion", "AutomatizadorRadicacionWidget")
+        self._add_widget(cat_procesamiento, "Furips ADRES", "FA", "widgets.furips_adres", "FuripsAdresWidget")
+        self._add_widget(cat_procesamiento, "Epicrisis ADRES", "EA", "widgets.epicrisis_adres", "EpicrisisAdresWidget")
+        self._add_widget(cat_procesamiento, "Glosas Salud Total", "GST", "widgets.respuesta_glosas_salud_total", "RespuestaGlosasSaludTotalWidget")
 
 
         # 2. Categoría Organización

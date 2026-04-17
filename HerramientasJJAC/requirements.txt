@@ -6,3 +6,4 @@ openpyxl
 pyzipper
 playwright
 pdfplumber
+requests

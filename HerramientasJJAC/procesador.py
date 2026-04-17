@@ -263,6 +263,58 @@ def filtrar_rips():
             else: print("  > INFO: No se encontraron usuarios coincidentes. Se omite.")
     messagebox.showinfo("Proceso Terminado", f"El filtrado de RIPS ha finalizado. Se crearon {archivos_generados} archivos.")
 
+def filtrar_furips_por_factura_dual():
+    print("\n--- INICIANDO FILTRADO DUAL DE FURIPS POR LISTADO ---")
+    facturas = pedir_lista_glosas()
+    if not facturas: return
+    
+    print("\nPASO 1: Seleccione los archivos originales.")
+    archivo_f1 = seleccionar_archivo(titulo="Seleccione el archivo FURIPS1 original")
+    if not archivo_f1: return
+    archivo_f2 = seleccionar_archivo(titulo="Seleccione el archivo FURIPS2 original")
+    if not archivo_f2: return
+    
+    print("\nPASO 2: Seleccione la CARPETA DE SALIDA.")
+    carpeta_salida = seleccionar_carpeta(titulo="Seleccione la carpeta donde se guardarán los resultados")
+    if not carpeta_salida: return
+
+    try:
+        print("  > Cargando archivos en memoria...")
+        df_f1 = parsear_archivo_irregular(archivo_f1, 102, tiene_comas_iniciales=True)
+        df_f2 = parsear_archivo_irregular(archivo_f2, 9, tiene_comas_iniciales=False)
+
+        if df_f1 is None or df_f2 is None:
+            print("  - ¡ERROR! No se pudieron cargar los archivos.")
+            return
+
+        archivos_creados = 0
+        for factura in facturas:
+            # Filtrar F1
+            df_f1_filtrado = df_f1[df_f1.iloc[:, 2] == factura]
+            # Filtrar F2
+            df_f2_filtrado = df_f2[df_f2.iloc[:, 0] == factura]
+
+            if not df_f1_filtrado.empty or not df_f2_filtrado.empty:
+                if not df_f1_filtrado.empty:
+                    nombre_f1 = f"{factura}_FURIPS1.txt"
+                    df_f1_filtrado.to_csv(os.path.join(carpeta_salida, nombre_f1), sep=',', header=False, index=False, encoding='utf-8')
+                    archivos_creados += 1
+                
+                if not df_f2_filtrado.empty:
+                    nombre_f2 = f"{factura}_FURIPS2.txt"
+                    df_f2_filtrado.to_csv(os.path.join(carpeta_salida, nombre_f2), sep=',', header=False, index=False, encoding='utf-8')
+                    archivos_creados += 1
+                
+                print(f"  > Procesada factura: {factura}")
+            else:
+                print(f"  > INFO: No se encontraron registros para la factura: {factura}")
+
+        messagebox.showinfo("Proceso Terminado", f"Se han generado {archivos_creados} archivos en la carpeta de salida.")
+
+    except Exception as e:
+        print(f"  > ¡ERROR! Ocurrió un problema: {e}")
+        messagebox.showerror("Error", f"No se pudo procesar el filtrado dual:\n{e}")
+
 # --- MENÚ PRINCIPAL ---
 if __name__ == "__main__":
     root = inicializar_tk()
@@ -271,14 +323,15 @@ if __name__ == "__main__":
         print("    MENÚ PRINCIPAL DE HERRAMIENTAS PARA GLOSAS")
         print("="*50)
         print("\n--- RIPS ---\n  1. Unir RIPS (por tipo, desde dos carpetas)\n  2. Filtrar RIPS (por glosas, crea copias)")
-        print("\n--- FURIPS ---\n  3. Unir FURIPS (por tipo)\n  4. Filtrar UN Archivo FURIP (individualmente)")
-        print("\n--- SALIR ---\n  5. Salir")
+        print("\n--- FURIPS ---\n  3. Unir FURIPS (por tipo)\n  4. Filtrar UN Archivo FURIP (individualmente)\n  5. Filtrar FURIPS 1 y 2 por listado (Dual)")
+        print("\n--- SALIR ---\n  6. Salir")
         choice = input("\nPor favor, seleccione una opción: ")
         if choice == '1': unir_rips()
         elif choice == '2': filtrar_rips()
         elif choice == '3': unir_furips()
         elif choice == '4': filtrar_furips()
-        elif choice == '5':
+        elif choice == '5': filtrar_furips_por_factura_dual()
+        elif choice == '6':
             print("\n¡Hasta luego!")
             break
         else: print("\nOpción no válida.")

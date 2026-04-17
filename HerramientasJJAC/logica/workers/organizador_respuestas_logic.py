@@ -68,6 +68,17 @@ class OrganizadorRespuestasWorker(QObject):
                     nombre_carpeta_destino = posibles_carpetas[0]
                     ruta_carpeta_destino = os.path.join(self.carpeta_raiz, nombre_carpeta_destino)
                     
+                    # Validar que la serie de la respuesta coincida con la serie de la carta glosa
+                    serie_carta = self._extraer_serie_carta_glosa(ruta_carpeta_destino)
+                    if serie_carta and respuesta_info['serie'].upper() != serie_carta.upper():
+                        razon = (
+                            f"La serie de la respuesta ({respuesta_info['serie']}) no coincide con "
+                            f"la serie de la carta glosa ({serie_carta}) en la carpeta {nombre_carpeta_destino}"
+                        )
+                        resultados['fallidos'].append({'respuesta': nombre_respuesta, 'razon': razon})
+                        respuestas_procesadas.add(nombre_respuesta)
+                        continue
+                    
                     origen_path = os.path.join(self.carpeta_respuestas, nombre_respuesta)
                     destino_path = os.path.join(ruta_carpeta_destino, nombre_respuesta)
                     
@@ -103,6 +114,24 @@ class OrganizadorRespuestasWorker(QObject):
 
     def cancelar(self):
         self.esta_cancelado = True
+
+    def _extraer_serie_carta_glosa(self, ruta_carpeta: str) -> str | None:
+        r"""
+        Busca la carta glosa dentro de la carpeta y extrae la serie.
+        Patrón: .*?([A-Z]+)[_-](\d+)[_-].*?\.pdf
+        Ejemplo: 167695-FECR-356353-LA PREVISORA S.A..pdf -> FECR
+        """
+        try:
+            for filename in os.listdir(ruta_carpeta):
+                if filename.lower().endswith('.pdf'):
+                    # Patrón: serie-numero-... o serie_numero_...
+                    match = re.search(r'([A-Z]+)[_-](\d+)[_-]', filename, re.IGNORECASE)
+                    if match:
+                        serie = match.group(1).upper()
+                        return serie
+        except Exception:
+            pass
+        return None
 
     def _extraer_info_respuesta(self, nombre_archivo):
         """

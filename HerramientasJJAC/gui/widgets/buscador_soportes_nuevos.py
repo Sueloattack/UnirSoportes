@@ -29,12 +29,12 @@ class BuscadorSoportesNuevosWidget(QWidget):
         layout_inputs.setSpacing(10)
 
         self.editor_facturas = QTextEdit()
-        self.editor_facturas.setPlaceholderText("Pega aquí la lista de facturas con su serie (una por línea).\nEjemplo:\ncoex12345\nfecr67890")
+        self.editor_facturas.setPlaceholderText("Pega aquí la lista de facturas con su serie (una por línea).\nEjemplo:\ncoex12345\nfecr67890\nferr2722")
         layout_inputs.addWidget(self.editor_facturas)
         
         selector_busqueda_layout = QHBoxLayout()
         self.line_busqueda = QLineEdit()
-        self.line_busqueda.setPlaceholderText("Seleccione la carpeta de búsqueda, preferiblemente la carpeta de la entidad en radicacion.")
+        self.line_busqueda.setPlaceholderText("Seleccione la carpeta raíz de la entidad en radicación. El sistema intentará ubicar año, mes y cuenta por GEMA antes de buscar soportes.")
         self.line_busqueda.setReadOnly(True)
         btn_busqueda = QPushButton("Seleccionar...")
         btn_busqueda.clicked.connect(lambda: self._seleccionar_carpeta(self.line_busqueda))
@@ -51,6 +51,10 @@ class BuscadorSoportesNuevosWidget(QWidget):
         selector_destino_layout.addWidget(self.line_destino)
         selector_destino_layout.addWidget(btn_destino)
         layout_inputs.addLayout(selector_destino_layout)
+
+        label_info = QLabel("Fases de búsqueda: carpeta de cuenta, nombres renombrados por resolución 2284, nombre exacto de factura y patrón _SOP_1. También se permiten archivos JSON.")
+        label_info.setWordWrap(True)
+        layout_inputs.addWidget(label_info)
         
         layout_principal.addWidget(group_inputs)
 
