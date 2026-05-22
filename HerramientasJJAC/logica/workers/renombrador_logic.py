@@ -34,11 +34,28 @@ class RenombradorWorker(QObject):
         
         if self.modo == 'escolar':
             self.renombrar_escolares_en_subcarpetas()
+        elif self.modo == 'sura-arl':
+            self.renombrar_carpetas_sura_arl()
         elif self.modo == 'glosa' or self.modo == 'devolucion':
             self.renombrar_respuestas_en_raiz()
         else:
             resultados = {'exitosos': [], 'fallidos': [{'archivo': 'N/A', 'razon': f"Modo '{self.modo}' desconocido."}]}
             self.proceso_finalizado.emit(resultados)
+
+    def _construir_ruta_carpeta_unica(self, ruta_padre: str, nombre_objetivo: str, ruta_actual: str) -> str:
+        ruta_base = os.path.join(ruta_padre, nombre_objetivo)
+        if os.path.normcase(ruta_base) == os.path.normcase(ruta_actual):
+            return ruta_actual
+
+        if not os.path.exists(ruta_base):
+            return ruta_base
+
+        consecutivo = 1
+        while True:
+            ruta_candidata = os.path.join(ruta_padre, f"{nombre_objetivo}_{consecutivo}")
+            if os.path.normcase(ruta_candidata) == os.path.normcase(ruta_actual) or not os.path.exists(ruta_candidata):
+                return ruta_candidata
+            consecutivo += 1
 
     def renombrar_respuestas_en_raiz(self):
         resultados = {'exitosos': [], 'fallidos': []}
@@ -126,6 +143,58 @@ class RenombradorWorker(QObject):
                             self.emit_fallo(resultados, nombre_original, f"Error al renombrar: {e}")
                 else:
                     self.emit_fallo(resultados, nombre_carpeta, "No se encontró el par 'carta_glosa' y 'respuesta_glosa'.", 'warning')
+        except Exception as e:
+            self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado: {e}")
+        self.proceso_finalizado.emit(resultados)
+
+    def renombrar_carpetas_sura_arl(self):
+        resultados = {'exitosos': [], 'fallidos': []}
+        try:
+            subcarpetas = gestor_archivos.listar_subdirectorios(self.ruta_carpeta_raiz)
+            if not subcarpetas:
+                self.emit_fallo(resultados, "N/A", "No se encontraron subcarpetas en el directorio raíz.")
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            for ruta_carpeta in subcarpetas:
+                if self.esta_cancelado:
+                    break
+
+                nombre_carpeta = os.path.basename(ruta_carpeta)
+                self.progreso_actualizado.emit(
+                    f"<br><p style='color:{COLOR_DEFAULT};'>Procesando subcarpeta SURA-ARL: <b>{nombre_carpeta}</b></p>"
+                )
+
+                archivos_pdf = gestor_archivos.obtener_archivos_pdf(ruta_carpeta)
+                if not archivos_pdf:
+                    self.emit_fallo(resultados, nombre_carpeta, "No se encontraron PDF dentro de la carpeta.", 'warning')
+                    continue
+
+                documentos = identificador_archivos.identificar_documentos_aseguradoras(archivos_pdf, ruta_carpeta)
+                respuesta_glosa = documentos.get('respuesta_glosa')
+                if not respuesta_glosa:
+                    self.emit_fallo(resultados, nombre_carpeta, "No se encontró respuesta glosa dentro de la carpeta.", 'warning')
+                    continue
+
+                nombre_objetivo = os.path.splitext(os.path.basename(respuesta_glosa['path']))[0].strip()
+                if not nombre_objetivo:
+                    self.emit_fallo(resultados, nombre_carpeta, "La respuesta glosa no produjo un nombre válido para la carpeta.", 'warning')
+                    continue
+
+                ruta_padre = os.path.dirname(ruta_carpeta)
+                ruta_destino = self._construir_ruta_carpeta_unica(ruta_padre, nombre_objetivo, ruta_carpeta)
+
+                if os.path.normcase(ruta_destino) == os.path.normcase(ruta_carpeta):
+                    self.emit_fallo(resultados, nombre_carpeta, "La carpeta ya tiene el nombre objetivo.", 'warning')
+                    continue
+
+                try:
+                    os.rename(ruta_carpeta, ruta_destino)
+                    mensaje = f"Renombrada carpeta: {nombre_carpeta} -> <b>{os.path.basename(ruta_destino)}</b>"
+                    resultados['exitosos'].append({"archivo": nombre_carpeta, "razon": mensaje})
+                    self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'>- {mensaje}</p>")
+                except Exception as e:
+                    self.emit_fallo(resultados, nombre_carpeta, f"Error al renombrar la carpeta: {e}")
         except Exception as e:
             self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado: {e}")
         self.proceso_finalizado.emit(resultados)

@@ -11,6 +11,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
         super().__init__()
         self.worker = None
         self.thread = None
+        self.cancelacion_solicitada = False
         
         self.crear_widgets()
 
@@ -58,11 +59,19 @@ class BuscadorSoportesNuevosWidget(QWidget):
         
         layout_principal.addWidget(group_inputs)
 
+        botones_layout = QHBoxLayout()
         self.btn_iniciar = QPushButton("Iniciar Búsqueda y Copia")
         self.btn_iniciar.setObjectName("BotonPrincipal")
         self.btn_iniciar.setFixedHeight(40)
         self.btn_iniciar.clicked.connect(self.iniciar_proceso)
-        layout_principal.addWidget(self.btn_iniciar)
+        botones_layout.addWidget(self.btn_iniciar)
+
+        self.btn_detener = QPushButton("Detener")
+        self.btn_detener.setFixedHeight(40)
+        self.btn_detener.setEnabled(False)
+        self.btn_detener.clicked.connect(self.detener_proceso)
+        botones_layout.addWidget(self.btn_detener)
+        layout_principal.addLayout(botones_layout)
 
         group_results = QGroupBox("2. Resultados")
         layout_results = QVBoxLayout(group_results)
@@ -90,8 +99,8 @@ class BuscadorSoportesNuevosWidget(QWidget):
 
         facturas_con_serie = [line.strip() for line in facturas_raw.splitlines() if line.strip()]
 
-        self.btn_iniciar.setText("Procesando...")
-        self.btn_iniciar.setEnabled(False)
+        self.cancelacion_solicitada = False
+        self._actualizar_estado_ejecucion(True)
         self.log_viewer.clear()
         self.log_viewer.append("Iniciando proceso...")
         
@@ -105,15 +114,34 @@ class BuscadorSoportesNuevosWidget(QWidget):
         
         self.thread.start()
 
+    def detener_proceso(self):
+        if not self.worker or not self.thread or not self.thread.isRunning():
+            return
+        self.cancelacion_solicitada = True
+        self.btn_detener.setEnabled(False)
+        self.log_viewer.append("<b>Solicitando cancelación...</b>")
+        self.worker.cancelar()
+
     def actualizar_log(self, mensaje_html: str):
         self.log_viewer.append(mensaje_html)
 
     def finalizar_proceso(self):
-        self.log_viewer.append("<b>Proceso finalizado.</b>")
-        self.btn_iniciar.setText("Iniciar Búsqueda y Copia")
-        self.btn_iniciar.setEnabled(True)
+        if self.cancelacion_solicitada:
+            self.log_viewer.append("<b>Proceso detenido por el usuario.</b>")
+        else:
+            self.log_viewer.append("<b>Proceso finalizado.</b>")
+        self._actualizar_estado_ejecucion(False)
         self.thread.quit()
         self.thread.wait()
         self.thread = None
         self.worker = None
-        QMessageBox.information(self, "Proceso Finalizado", "La búsqueda de soportes para facturas NUEVAS (NU) ha terminado.")
+        if self.cancelacion_solicitada:
+            QMessageBox.information(self, "Proceso detenido", "La búsqueda de soportes para facturas NUEVAS (NU) fue detenida.")
+        else:
+            QMessageBox.information(self, "Proceso Finalizado", "La búsqueda de soportes para facturas NUEVAS (NU) ha terminado.")
+        self.cancelacion_solicitada = False
+
+    def _actualizar_estado_ejecucion(self, en_ejecucion: bool):
+        self.btn_iniciar.setText("Procesando..." if en_ejecucion else "Iniciar Búsqueda y Copia")
+        self.btn_iniciar.setEnabled(not en_ejecucion)
+        self.btn_detener.setEnabled(en_ejecucion)

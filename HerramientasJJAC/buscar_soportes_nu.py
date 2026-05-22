@@ -280,38 +280,60 @@ def buscar_y_procesar_soportes_nu():
         
         nombre_hc_buscado = f"HC_{factura}".upper()
         nombre_factura_buscado = factura.upper()
+        nombre_epi_nit_buscado = f"EPI_{NIT}_{factura}".upper()
+        nombre_pdx_nit_buscado = f"PDX_{NIT}_{factura}".upper()
+        nombre_furips_nit_buscado = f"FURIPS_{NIT}_{factura}".upper()
         nombre_furips_buscado = f"FURIPS_{factura}".upper()
         nombre_soporte_unido = f"{factura}-SOPORTE".upper()
 
-        # 1. Procesar HC -> EPI y PDX
+        # 1. Procesar EPI y PDX
+        ruta_epi = max(indice[nombre_epi_nit_buscado], key=os.path.getmtime) if nombre_epi_nit_buscado in indice else None
+        ruta_pdx = max(indice[nombre_pdx_nit_buscado], key=os.path.getmtime) if nombre_pdx_nit_buscado in indice else None
+
         ruta_hc = None
-        if nombre_hc_buscado in indice:
-            ruta_hc = max(indice[nombre_hc_buscado], key=os.path.getmtime)
-        elif nombre_soporte_unido in indice:
-            ruta_hc = max(indice[nombre_soporte_unido], key=os.path.getmtime)
-            print(f"  [!] Usando archivo UNIDO para HC: {os.path.basename(ruta_hc)}")
+        if not ruta_epi or not ruta_pdx:
+            if nombre_hc_buscado in indice:
+                ruta_hc = max(indice[nombre_hc_buscado], key=os.path.getmtime)
+            elif nombre_soporte_unido in indice:
+                ruta_hc = max(indice[nombre_soporte_unido], key=os.path.getmtime)
+                print(f"  [!] Usando archivo UNIDO para HC: {os.path.basename(ruta_hc)}")
 
-        if ruta_hc:
+        if ruta_hc and not ruta_epi:
+            ruta_epi = ruta_hc
+        if ruta_hc and not ruta_pdx:
+            ruta_pdx = ruta_hc
+
+        if ruta_epi and ruta_pdx:
             encontrado_hc = True
-            _, ext = os.path.splitext(ruta_hc)
-            extension = ext if ext else '.pdf'
-            
-            if os.path.getsize(ruta_hc) > UMBRAL_TAMANO_BYTES:
-                print(f"  [!] ADVERTENCIA: Historia Clínica excede 20MB")
-
             try:
-                # EPI
-                nombre_epi = f"EPI_{NIT}_{factura}{extension}"
-                shutil.copy2(ruta_hc, os.path.join(dir_destino, nombre_epi))
-                # PDX
-                nombre_pdx = f"PDX_{NIT}_{factura}{extension}"
-                shutil.copy2(ruta_hc, os.path.join(dir_destino, nombre_pdx))
-                print(f"  [OK] HC -> {nombre_epi} y {nombre_pdx}")
+                _, ext_epi = os.path.splitext(ruta_epi)
+                extension_epi = ext_epi if ext_epi else '.pdf'
+                if os.path.getsize(ruta_epi) > UMBRAL_TAMANO_BYTES:
+                    print(f"  [!] ADVERTENCIA: Soporte EPI excede 20MB")
+
+                _, ext_pdx = os.path.splitext(ruta_pdx)
+                extension_pdx = ext_pdx if ext_pdx else '.pdf'
+                if os.path.getsize(ruta_pdx) > UMBRAL_TAMANO_BYTES:
+                    print(f"  [!] ADVERTENCIA: Soporte PDX excede 20MB")
+
+                nombre_epi = f"EPI_{NIT}_{factura}{extension_epi}"
+                shutil.copy2(ruta_epi, os.path.join(dir_destino, nombre_epi))
+
+                nombre_pdx = f"PDX_{NIT}_{factura}{extension_pdx}"
+                shutil.copy2(ruta_pdx, os.path.join(dir_destino, nombre_pdx))
+
+                if ruta_epi == ruta_pdx:
+                    print(f"  [OK] HC -> {nombre_epi} y {nombre_pdx}")
+                else:
+                    print(f"  [OK] EPI/PDX homologados -> {nombre_epi} y {nombre_pdx}")
                 total_archivos_creados += 2
             except Exception as e:
-                motivos_falla.append(f"Error al copiar HC (EPI/PDX): {e}")
+                motivos_falla.append(f"Error al copiar EPI/PDX: {e}")
         else:
-            motivos_falla.append(f"No se encontró archivo HC_{factura} ni {factura}-SOPORTE")
+            if not ruta_epi:
+                motivos_falla.append(f"No se encontró EPI_{NIT}_{factura} ni HC_{factura} ni {factura}-SOPORTE")
+            if not ruta_pdx:
+                motivos_falla.append(f"No se encontró PDX_{NIT}_{factura} ni HC_{factura} ni {factura}-SOPORTE")
 
         # 2. Procesar Factura -> CRC (Solo si modo es 1 o 2)
         if modo in ['1', '2']:
@@ -339,7 +361,9 @@ def buscar_y_procesar_soportes_nu():
         # 3. Procesar FURIPS (Solo si modo es 2 o 4)
         if modo in ['2', '4']:
             ruta_furips = None
-            if nombre_furips_buscado in indice:
+            if nombre_furips_nit_buscado in indice:
+                ruta_furips = max(indice[nombre_furips_nit_buscado], key=os.path.getmtime)
+            elif nombre_furips_buscado in indice:
                 ruta_furips = max(indice[nombre_furips_buscado], key=os.path.getmtime)
             elif nombre_soporte_unido in indice:
                 ruta_furips = max(indice[nombre_soporte_unido], key=os.path.getmtime)
@@ -349,6 +373,9 @@ def buscar_y_procesar_soportes_nu():
                 encontrado_furips = True
                 _, ext = os.path.splitext(ruta_furips)
                 extension = ext if ext else '.pdf'
+
+                if os.path.getsize(ruta_furips) > UMBRAL_TAMANO_BYTES:
+                    print(f"  [!] ADVERTENCIA: Soporte FURIPS excede 20MB")
                 
                 try:
                     nombre_furips_dst = f"FURIPS_{NIT}_{factura}{extension}"
@@ -358,7 +385,7 @@ def buscar_y_procesar_soportes_nu():
                 except Exception as e:
                     motivos_falla.append(f"Error al copiar FURIPS: {e}")
             else:
-                motivos_falla.append(f"No se encontró archivo FURIPS_{factura} ni {factura}-SOPORTE")
+                motivos_falla.append(f"No se encontró FURIPS_{NIT}_{factura} ni FURIPS_{factura} ni {factura}-SOPORTE")
 
         # Finalizar Factura
         if encontrado_hc and encontrado_factura and encontrado_furips and not motivos_falla:
