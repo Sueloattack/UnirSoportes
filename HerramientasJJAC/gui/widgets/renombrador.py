@@ -45,23 +45,27 @@ class RenombradorWidget(QWidget):
         self.boton_devolucion = QPushButton("Devolución")
         self.boton_glosa = QPushButton("Glosa")
         self.boton_sura_arl = QPushButton("SURA-ARL")
+        self.boton_json = QPushButton("JSON")
 
         self.botones_modo = {
             'escolar': self.boton_escolar,
             'devolucion': self.boton_devolucion,
             'glosa': self.boton_glosa,
             'sura-arl': self.boton_sura_arl,
+            'json': self.boton_json,
         }
 
         self.boton_escolar.clicked.connect(lambda: self.iniciar_proceso('escolar'))
         self.boton_devolucion.clicked.connect(lambda: self.iniciar_proceso('devolucion'))
         self.boton_glosa.clicked.connect(lambda: self.iniciar_proceso('glosa'))
         self.boton_sura_arl.clicked.connect(lambda: self.iniciar_proceso('sura-arl'))
+        self.boton_json.clicked.connect(lambda: self.iniciar_proceso('json'))
 
         layout_acciones.addWidget(self.boton_escolar)
         layout_acciones.addWidget(self.boton_devolucion)
         layout_acciones.addWidget(self.boton_glosa)
         layout_acciones.addWidget(self.boton_sura_arl)
+        layout_acciones.addWidget(self.boton_json)
         grupo_acciones.setLayout(layout_acciones)
         layout_principal.addWidget(grupo_acciones)
 

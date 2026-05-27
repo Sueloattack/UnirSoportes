@@ -38,6 +38,8 @@ class RenombradorWorker(QObject):
             self.renombrar_carpetas_sura_arl()
         elif self.modo == 'glosa' or self.modo == 'devolucion':
             self.renombrar_respuestas_en_raiz()
+        elif self.modo == 'json':
+            self.renombrar_json_en_raiz()
         else:
             resultados = {'exitosos': [], 'fallidos': [{'archivo': 'N/A', 'razon': f"Modo '{self.modo}' desconocido."}]}
             self.proceso_finalizado.emit(resultados)
@@ -197,6 +199,79 @@ class RenombradorWorker(QObject):
                     self.emit_fallo(resultados, nombre_carpeta, f"Error al renombrar la carpeta: {e}")
         except Exception as e:
             self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado: {e}")
+        self.proceso_finalizado.emit(resultados)
+
+    def renombrar_json_en_raiz(self):
+        resultados = {'exitosos': [], 'fallidos': []}
+        nit_coex = "730010082602"
+        nit_general = "730010082601"
+
+        patron_resultadosmsps = re.compile(r"^resultadosmsps_([^_]+)_id.*_a_cuv\.json$", re.IGNORECASE)
+        patron_simple = re.compile(r"^([a-zA-Z0-9]+)\.json$", re.IGNORECASE)
+
+        try:
+            if not os.path.isdir(self.ruta_carpeta_raiz):
+                self.emit_fallo(resultados, "N/A", "La ruta seleccionada no existe o no es un directorio.")
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            archivos = os.listdir(self.ruta_carpeta_raiz)
+            if not archivos:
+                self.emit_fallo(resultados, "N/A", "No se encontraron archivos en la carpeta raíz.", 'warning')
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            for archivo in archivos:
+                if self.esta_cancelado:
+                    break
+
+                ruta_origen = os.path.join(self.ruta_carpeta_raiz, archivo)
+                if not os.path.isfile(ruta_origen):
+                    continue
+
+                nuevo_nombre = None
+                match_resultadosmsps = patron_resultadosmsps.match(archivo)
+
+                if match_resultadosmsps:
+                    identificador_original = match_resultadosmsps.group(1)
+                    identificador = identificador_original.upper()
+                    nit = nit_coex if 'coex' in identificador_original.lower() else nit_general
+                    nuevo_nombre = f"{nit}_{identificador}_CUV.json"
+                else:
+                    match_simple = patron_simple.match(archivo)
+                    if not match_simple:
+                        continue
+
+                    if archivo.lower().startswith('resultadosmsps'):
+                        continue
+
+                    identificador_original = match_simple.group(1)
+                    identificador = identificador_original.upper()
+                    nit = nit_coex if 'coex' in identificador_original.lower() else nit_general
+                    nuevo_nombre = f"{nit}_{identificador}_RIP.json"
+
+                if not nuevo_nombre or archivo == nuevo_nombre:
+                    continue
+
+                ruta_destino = os.path.join(self.ruta_carpeta_raiz, nuevo_nombre)
+                if os.path.exists(ruta_destino):
+                    self.emit_fallo(resultados, archivo, f"[OMITIDO] El destino ya existe: {nuevo_nombre}", 'warning')
+                    continue
+
+                try:
+                    os.rename(ruta_origen, ruta_destino)
+                    mensaje = f"Renombrado JSON: {archivo} -> <b>{nuevo_nombre}</b>"
+                    resultados['exitosos'].append({"archivo": archivo, "razon": mensaje})
+                    self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'>- {mensaje}</p>")
+                except Exception as e:
+                    self.emit_fallo(resultados, archivo, f"Error al renombrar JSON: {e}")
+
+            if self.esta_cancelado:
+                self.progreso_actualizado.emit(f"<p style='color:{COLOR_WARNING};'>Proceso cancelado por el usuario.</p>")
+
+        except Exception as e:
+            self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado en modo JSON: {e}")
+
         self.proceso_finalizado.emit(resultados)
 
     def emit_fallo(self, resultados, archivo, razon, level='error'):

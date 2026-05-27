@@ -27,6 +27,7 @@ from gui.widgets.automatizador_radicacion import AutomatizadorRadicacionWidget
 from gui.widgets.furips_adres import FuripsAdresWidget
 from gui.widgets.epicrisis_adres import EpicrisisAdresWidget
 from gui.widgets.respuesta_glosas_salud_total import RespuestaGlosasSaludTotalWidget
+from gui.widgets.funcionalidades_previ import FuncionalidadesPreviWidget
 
 
 class VentanaPrincipal(QMainWindow):
@@ -125,8 +126,12 @@ class VentanaPrincipal(QMainWindow):
         self._add_widget(cat_busqueda, "Buscar Soportes R2", "BSR", "widgets.buscador_soportes_ratificados", "BuscadorSoportesRatificadosWidget")
         self._add_widget(cat_busqueda, "Buscar Soportes CONCI", "BSC", "widgets.buscador_soportes_conci", "BuscadorSoportesConciWidget")
         self._add_widget(cat_busqueda, "Buscar carpetas ADRES", "BC", "widgets.buscador_carpetas_ratificadas", "BuscadorCarpetasRatificadasWidget")
+
+        # 4. Categoría Previ
+        cat_previ = self._add_category("PREVI")
+        self._add_widget(cat_previ, "Funcionalidades Previ", "PRE", "widgets.funcionalidades_previ", "FuncionalidadesPreviWidget")
         
-        # 4. Categoría Sistema
+        # 5. Categoría Sistema
         cat_sistema = self._add_category("SISTEMA")
         self._add_widget(cat_sistema, "Ayuda y Recomendaciones", "AYU", "widgets.panel_ayuda", "PanelAyudaWidget")
 

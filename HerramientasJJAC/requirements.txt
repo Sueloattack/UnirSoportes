@@ -3,6 +3,7 @@ pypdf
 PyMuPDF
 pandas
 openpyxl
+xlrd
 pyzipper
 playwright
 pdfplumber

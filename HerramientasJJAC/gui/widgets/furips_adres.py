@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                               QLineEdit, QGroupBox, QLabel, QTabWidget, QTextEdit, 
+                               QLineEdit, QGroupBox, QLabel, QTabWidget, QTextEdit,
+                               QCheckBox,
                                QFileDialog)
 from PySide6.QtCore import QThread, Qt
 
@@ -109,6 +110,9 @@ class FuripsAdresWidget(QWidget):
         g_layout.addLayout(ly_f2)
         g_layout.addLayout(ly_salida)
 
+        self.checkbox_factura_individual = QCheckBox("Factura X individual")
+        g_layout.addWidget(self.checkbox_factura_individual)
+
         g_layout.addWidget(QLabel("Pegar Lista de Facturas (una por línea o espacio):"))
         self.text_lista_filtrar = QTextEdit()
         g_layout.addWidget(self.text_lista_filtrar)
@@ -158,7 +162,8 @@ class FuripsAdresWidget(QWidget):
             'archivo_f1': f1,
             'archivo_f2': f2,
             'carpeta_salida': carpeta_salida,
-            'glosas': glosas
+            'glosas': glosas,
+            'factura_x_individual': self.checkbox_factura_individual.isChecked()
         }
         self.lanzar_worker(params, "filtrar")
 

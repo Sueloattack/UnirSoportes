@@ -104,8 +104,16 @@ class FuripsAdresWorker(QObject):
         archivo_f2 = self.parametros.get('archivo_f2')
         carpeta_salida = self.parametros.get('carpeta_salida')
         glosas = self.parametros.get('glosas', [])
+        factura_x_individual = bool(self.parametros.get('factura_x_individual'))
 
-        self.progreso_actualizado.emit(f"<p style='color:{COLOR_INFO};'>Iniciando FILTRADO DUAL para {len(glosas)} facturas...</p>")
+        if factura_x_individual:
+            self.progreso_actualizado.emit(
+                f"<p style='color:{COLOR_INFO};'>Iniciando FILTRADO DUAL individual para {len(glosas)} facturas...</p>"
+            )
+        else:
+            self.progreso_actualizado.emit(
+                f"<p style='color:{COLOR_INFO};'>Iniciando FILTRADO DUAL para {len(glosas)} facturas...</p>"
+            )
 
         df_f1 = self._parsear_archivo_irregular(archivo_f1, 102, tiene_comas_iniciales=True)
         df_f2 = self._parsear_archivo_irregular(archivo_f2, 9, tiene_comas_iniciales=False)
@@ -114,8 +122,15 @@ class FuripsAdresWorker(QObject):
             self.proceso_finalizado.emit({'error': "No se pudieron cargar los archivos originales F1/F2."})
             return
 
+        if factura_x_individual:
+            self._filtrar_dual_individual(df_f1, df_f2, carpeta_salida, glosas)
+            return
+
+        self._filtrar_dual_agrupado(df_f1, df_f2, carpeta_salida, glosas)
+
+    def _filtrar_dual_agrupado(self, df_f1, df_f2, carpeta_salida, glosas):
         archivos_creados = 0
-        
+
         # Filtramos todo el dataframe de una sola vez
         df_f1_filtrado = df_f1[df_f1.iloc[:, 2].isin(glosas)]
         df_f2_filtrado = df_f2[df_f2.iloc[:, 0].isin(glosas)]
@@ -137,5 +152,61 @@ class FuripsAdresWorker(QObject):
             
         if not creado_algo:
             self.progreso_actualizado.emit(f"<p style='color:{COLOR_WARNING};'>- No se encontraron coincidencias para ninguna factura.</p>")
+
+        self.proceso_finalizado.emit({'estado': 'completado', 'archivos': archivos_creados})
+
+    def _filtrar_dual_individual(self, df_f1, df_f2, carpeta_salida, glosas):
+        archivos_creados = 0
+        coincidencias_encontradas = 0
+
+        for indice_factura, factura in enumerate(glosas, start=1):
+            if self.esta_cancelado:
+                self.proceso_finalizado.emit({'estado': 'cancelado'})
+                return
+
+            factura_texto = str(factura).strip()
+            if not factura_texto:
+                continue
+
+            df_f1_filtrado = df_f1[df_f1.iloc[:, 2] == factura_texto]
+            df_f2_filtrado = df_f2[df_f2.iloc[:, 0] == factura_texto]
+
+            if df_f1_filtrado.empty and df_f2_filtrado.empty:
+                self.progreso_actualizado.emit(
+                    f"<p style='color:{COLOR_WARNING};'>- Factura {indice_factura}/{len(glosas)}: {factura_texto} sin coincidencias.</p>"
+                )
+                continue
+
+            if not df_f1_filtrado.empty:
+                nombre_f1 = f"{factura_texto}_FURIPS1.txt"
+                df_f1_filtrado.to_csv(
+                    os.path.join(carpeta_salida, nombre_f1),
+                    sep=',',
+                    header=False,
+                    index=False,
+                    encoding='utf-8'
+                )
+                archivos_creados += 1
+
+            if not df_f2_filtrado.empty:
+                nombre_f2 = f"{factura_texto}_FURIPS2.txt"
+                df_f2_filtrado.to_csv(
+                    os.path.join(carpeta_salida, nombre_f2),
+                    sep=',',
+                    header=False,
+                    index=False,
+                    encoding='utf-8'
+                )
+                archivos_creados += 1
+
+            coincidencias_encontradas += 1
+            self.progreso_actualizado.emit(
+                f"<p style='color:{COLOR_SUCCESS};'>- Factura {indice_factura}/{len(glosas)} procesada: {factura_texto}.</p>"
+            )
+
+        if coincidencias_encontradas == 0:
+            self.progreso_actualizado.emit(
+                f"<p style='color:{COLOR_WARNING};'>- No se encontraron coincidencias para ninguna factura.</p>"
+            )
 
         self.proceso_finalizado.emit({'estado': 'completado', 'archivos': archivos_creados})
