@@ -39,11 +39,12 @@ class BuscadorSoportesNuevosWorker(QObject):
     progreso_actualizado = Signal(str, float)
     proceso_finalizado = Signal()
 
-    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str):
+    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str, solo_factura: bool = False):
         super().__init__()
         self.facturas_con_serie = facturas_con_serie
         self.dir_busqueda = dir_busqueda
         self.dir_destino = dir_destino
+        self.solo_factura = solo_factura
         self.esta_cancelado = False
         self.exitos_lista = []
         self.fallos_lista = []
@@ -714,6 +715,62 @@ class BuscadorSoportesNuevosWorker(QObject):
         complementarios = [ruta for ruta in unicos if not ruta.lower().endswith('.pdf')]
         return pdfs, complementarios
 
+    def _normalizar_nombre_busqueda(self, texto: str) -> str:
+        return re.sub(r'[^a-z0-9]+', '_', texto.lower()).strip('_')
+
+    def _prioridad_factura_principal(self, ruta_archivo: str, factura_buscada: str):
+        nombre_base = os.path.splitext(os.path.basename(ruta_archivo))[0]
+        nombre_normalizado = self._normalizar_nombre_busqueda(nombre_base)
+        factura_normalizada = self._normalizar_nombre_busqueda(factura_buscada)
+        claves_descartadas = (
+            'furips', 'sop_1', 'hc', 'epicrisis', 'rips', 'cuv',
+            'crc', 'dqx', 'epi', 'fev', 'ham', 'hau', 'pde', 'pdx', 'ran',
+        )
+
+        if nombre_normalizado == factura_normalizada:
+            return 0
+
+        if nombre_normalizado in {
+            f"factura_{factura_normalizada}",
+            f"{factura_normalizada}_factura",
+        }:
+            return 1
+
+        if (
+            factura_normalizada in nombre_normalizado
+            and 'factura' in nombre_normalizado
+            and not any(clave in nombre_normalizado for clave in claves_descartadas)
+        ):
+            return 2
+
+        return None
+
+    def _seleccionar_archivos_para_copia(self, factura_buscada: str, rutas_candidatas: list[str]):
+        if not self.solo_factura:
+            return rutas_candidatas
+
+        priorizados = []
+        for ruta in rutas_candidatas:
+            prioridad = self._prioridad_factura_principal(ruta, factura_buscada)
+            if prioridad is None:
+                continue
+            priorizados.append((prioridad, -os.path.getmtime(ruta), ruta))
+
+        if not priorizados:
+            return []
+
+        priorizados.sort()
+        return [priorizados[0][2]]
+
+    def _obtener_directorio_destino(self, factura_buscada: str, numero_factura: str | None = None) -> str:
+        if self.solo_factura:
+            return self.dir_destino
+
+        if numero_factura:
+            return os.path.join(self.dir_destino, numero_factura)
+
+        return self._encontrar_subcarpeta_destino(factura_buscada)
+
     def _ejecutar_estrategia_a(
         self,
         facturas_a_buscar: list[str] = None,
@@ -789,12 +846,17 @@ class BuscadorSoportesNuevosWorker(QObject):
                             continue
 
                         archivos_encontrados = pdfs + complementarios
+                        archivos_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, archivos_encontrados)
+                        if not archivos_encontrados:
+                            self._log("-> Modo solo factura: no se identificó un PDF principal en esta carpeta GEMA.", COLOR_WARNING)
+                            pendientes_siguiente.append(factura_limpia)
+                            continue
                         self._log(
                             f"-> Se encontraron <b>{len(archivos_encontrados)}</b> soportes en carpeta GEMA "
                             f"(PDF: {len(pdfs)}, complementarios: {len(complementarios)}).",
                             COLOR_SUCCESS,
                         )
-                        ruta_destino_subcarpeta = os.path.join(self.dir_destino, numero_factura)
+                        ruta_destino_subcarpeta = self._obtener_directorio_destino(factura_limpia, numero_factura)
                         for archivo_encontrado in archivos_encontrados:
                             self._log(f"-> Copiando: <b>{os.path.basename(archivo_encontrado)}</b>", COLOR_SUCCESS)
                             self._copiar_soporte_desde_archivo(archivo_encontrado, ruta_destino_subcarpeta, factura_limpia)
@@ -857,9 +919,27 @@ class BuscadorSoportesNuevosWorker(QObject):
                         self._log(f"-> AVISO: Se encontraron {len(carpetas_validas)} carpetas válidas para '{numero_factura}'. Se usará la más reciente: {os.path.basename(carpeta_encontrada)}", COLOR_WARNING)
 
                     self._log(f"-> Soportes encontrados en: <b>{carpeta_encontrada}</b>", COLOR_SUCCESS)
-                    ruta_destino_subcarpeta = os.path.join(self.dir_destino, numero_factura)
-                    self._copiar_soportes_desde_carpeta(carpeta_encontrada, ruta_destino_subcarpeta, factura_limpia)
-                    self._registrar_exito(f"{factura_limpia} (por carpeta)")
+                    ruta_destino_subcarpeta = self._obtener_directorio_destino(factura_limpia, numero_factura)
+
+                    if self.solo_factura:
+                        rutas_candidatas = [
+                            os.path.join(carpeta_encontrada, nombre_archivo)
+                            for nombre_archivo in os.listdir(carpeta_encontrada)
+                            if os.path.isfile(os.path.join(carpeta_encontrada, nombre_archivo))
+                            and nombre_archivo.lower().endswith('.pdf')
+                        ]
+                        archivos_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, rutas_candidatas)
+                        if not archivos_encontrados:
+                            self._log("-> Modo solo factura: la carpeta encontrada no contiene una factura principal identificable.", COLOR_WARNING)
+                            pendientes_siguiente.append(factura_limpia)
+                            continue
+                        for archivo_encontrado in archivos_encontrados:
+                            self._log(f"-> Copiando factura principal: <b>{os.path.basename(archivo_encontrado)}</b>", COLOR_SUCCESS)
+                            self._copiar_soporte_desde_archivo(archivo_encontrado, ruta_destino_subcarpeta, factura_limpia)
+                        self._registrar_exito(f"{factura_limpia} ({len(archivos_encontrados)} factura principal por carpeta)")
+                    else:
+                        self._copiar_soportes_desde_carpeta(carpeta_encontrada, ruta_destino_subcarpeta, factura_limpia)
+                        self._registrar_exito(f"{factura_limpia} (por carpeta)")
 
                 pendientes = pendientes_siguiente
 
@@ -939,7 +1019,12 @@ class BuscadorSoportesNuevosWorker(QObject):
                         continue
 
                     archivos_encontrados = pdfs + complementarios
-                    ruta_destino_especifica = self._encontrar_subcarpeta_destino(factura_limpia)
+                    archivos_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, archivos_encontrados)
+                    if not archivos_encontrados:
+                        self._log("-> Modo solo factura: no se identificó una factura principal entre los archivos renombrados.", COLOR_WARNING)
+                        pendientes_siguiente.append(factura_limpia)
+                        continue
+                    ruta_destino_especifica = self._obtener_directorio_destino(factura_limpia, numero_factura_local)
                     self._log(
                         f"-> Se encontraron <b>{len(archivos_encontrados)}</b> soportes renombrados para {factura_limpia} "
                         f"(PDF: {len(pdfs)}, complementarios: {len(complementarios)}).",
@@ -1023,11 +1108,17 @@ class BuscadorSoportesNuevosWorker(QObject):
                 facturas_no_encontradas.append(factura_limpia)
                 continue
 
+            pdfs_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, pdfs_encontrados)
+            if not pdfs_encontrados:
+                self._log(f"-> Modo solo factura: ORIGEN/{numero_factura} no contiene una factura principal identificable. Pasando a Fase 4.", COLOR_WARNING)
+                facturas_no_encontradas.append(factura_limpia)
+                continue
+
             self._log(
                 f"-> Se encontraron <b>{len(pdfs_encontrados)}</b> PDFs en ORIGEN/{numero_factura}.",
                 COLOR_SUCCESS,
             )
-            ruta_destino_factura = os.path.join(self.dir_destino, numero_factura)
+            ruta_destino_factura = self._obtener_directorio_destino(factura_limpia, numero_factura)
             for pdf_path in pdfs_encontrados:
                 self._log(f"-> Copiando: <b>{os.path.basename(pdf_path)}</b>", COLOR_SUCCESS)
                 self._copiar_soporte_desde_archivo(pdf_path, ruta_destino_factura, factura_limpia)
@@ -1101,12 +1192,17 @@ class BuscadorSoportesNuevosWorker(QObject):
                         continue
 
                     archivos_encontrados = pdfs + complementarios
+                    archivos_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, archivos_encontrados)
+                    if not archivos_encontrados:
+                        self._log("-> Modo solo factura: el patrón _SOP_1 no corresponde a una factura principal. Continuando.", COLOR_WARNING)
+                        pendientes_siguiente.append(factura_limpia)
+                        continue
                     self._log(
                         f"-> Soportes encontrados para SOP1: {len(archivos_encontrados)} "
                         f"(PDF: {len(pdfs)}, complementarios: {len(complementarios)}).",
                         COLOR_SUCCESS,
                     )
-                    ruta_destino_especifica = self._encontrar_subcarpeta_destino(factura_limpia)
+                    ruta_destino_especifica = self._obtener_directorio_destino(factura_limpia, numero_factura)
                     self._log(f"-> Carpeta destino determinada: {os.path.basename(ruta_destino_especifica)}", COLOR_INFO)
 
                     for archivo_encontrado in archivos_encontrados:
@@ -1187,12 +1283,19 @@ class BuscadorSoportesNuevosWorker(QObject):
                         continue
 
                     archivos_encontrados = pdfs + complementarios
+                    archivos_encontrados = self._seleccionar_archivos_para_copia(factura_limpia, archivos_encontrados)
+                    if not archivos_encontrados:
+                        self._log("-> Modo solo factura: no se identificó una factura principal por nombre exacto.", COLOR_WARNING)
+                        pendientes_siguiente.append(factura_limpia)
+                        continue
                     self._log(
                         f"-> Soportes encontrados por nombre exacto: {len(archivos_encontrados)} "
                         f"(PDF: {len(pdfs)}, complementarios: {len(complementarios)}).",
                         COLOR_SUCCESS,
                     )
-                    ruta_destino_especifica = self._encontrar_subcarpeta_destino(factura_limpia)
+                    normalizada = self._normalizar_factura(factura_limpia)
+                    numero_factura = normalizada[1] if normalizada else None
+                    ruta_destino_especifica = self._obtener_directorio_destino(factura_limpia, numero_factura)
                     self._log(f"-> Carpeta destino determinada: {os.path.basename(ruta_destino_especifica)}", COLOR_INFO)
 
                     for archivo_encontrado in archivos_encontrados:
@@ -1291,9 +1394,13 @@ class BuscadorSoportesNuevosWorker(QObject):
                 os.makedirs(dir_destino, exist_ok=True)
             nombre_original = os.path.basename(ruta_origen)
             nombre_base, extension = os.path.splitext(nombre_original)
+            prioridad_factura = self._prioridad_factura_principal(ruta_origen, factura_buscada)
 
             # Lógica de renombrado
-            if nombre_base.lower() == factura_buscada.lower():
+            if self.solo_factura and prioridad_factura is not None:
+                nuevo_nombre = f"{factura_buscada}{extension}"
+                self._log(f"-> Archivo principal identificado para la factura. Renombrando a: {nuevo_nombre}", COLOR_INFO)
+            elif nombre_base.lower() == factura_buscada.lower():
                 nuevo_nombre = f"{nombre_base}-soporte{extension}"
                 self._log(f"-> El nombre del archivo coincide con la factura. Renombrando a: {nuevo_nombre}", COLOR_INFO)
             else:

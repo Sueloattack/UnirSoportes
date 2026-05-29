@@ -1,7 +1,8 @@
 # gui/widgets/buscador_soportes_nuevos.py
 import sys
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit, 
-                               QPushButton, QTextEdit, QMessageBox, QTextBrowser, QFileDialog, QHBoxLayout)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QGroupBox, QLabel, QLineEdit,
+                               QPushButton, QTextEdit, QMessageBox, QTextBrowser, QFileDialog, QHBoxLayout,
+                               QCheckBox)
 from PySide6.QtCore import QThread, Qt
 
 from logica.workers.buscador_soportes_nuevos_logic import BuscadorSoportesNuevosWorker
@@ -56,6 +57,11 @@ class BuscadorSoportesNuevosWidget(QWidget):
         label_info = QLabel("Fases de búsqueda: carpeta de cuenta, nombres renombrados por resolución 2284, nombre exacto de factura y patrón _SOP_1. También se permiten archivos JSON.")
         label_info.setWordWrap(True)
         layout_inputs.addWidget(label_info)
+
+        self.checkbox_solo_factura = QCheckBox("Traer solo la factura principal")
+        self.checkbox_solo_factura.setChecked(False)
+        self.checkbox_solo_factura.setToolTip("Si está activo, NU copiará solo el PDF principal de la factura y omitirá soportes complementarios.")
+        layout_inputs.addWidget(self.checkbox_solo_factura)
         
         layout_principal.addWidget(group_inputs)
 
@@ -98,6 +104,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
             return
 
         facturas_con_serie = [line.strip() for line in facturas_raw.splitlines() if line.strip()]
+        solo_factura = self.checkbox_solo_factura.isChecked()
 
         self.cancelacion_solicitada = False
         self._actualizar_estado_ejecucion(True)
@@ -105,7 +112,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
         self.log_viewer.append("Iniciando proceso...")
         
         self.thread = QThread()
-        self.worker = BuscadorSoportesNuevosWorker(facturas_con_serie, dir_busqueda, dir_destino)
+        self.worker = BuscadorSoportesNuevosWorker(facturas_con_serie, dir_busqueda, dir_destino, solo_factura=solo_factura)
         self.worker.moveToThread(self.thread)
         
         self.worker.log_generado.connect(self.actualizar_log)
