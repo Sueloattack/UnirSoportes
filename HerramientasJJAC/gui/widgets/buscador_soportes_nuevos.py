@@ -62,6 +62,12 @@ class BuscadorSoportesNuevosWidget(QWidget):
         self.checkbox_solo_factura.setChecked(False)
         self.checkbox_solo_factura.setToolTip("Si está activo, NU copiará solo el PDF principal de la factura y omitirá soportes complementarios.")
         layout_inputs.addWidget(self.checkbox_solo_factura)
+
+        self.checkbox_buscar_cuenta = QCheckBox("Buscar cuenta de cobro facturación")
+        self.checkbox_buscar_cuenta.setChecked(False)
+        self.checkbox_buscar_cuenta.setToolTip("Si está activo, buscará la cuenta de cobro en W:\\CUENTAS DE COBRO basándose en la fecha de radicación y número de cuenta.")
+        self.checkbox_buscar_cuenta.toggled.connect(self._on_buscar_cuenta_toggled)
+        layout_inputs.addWidget(self.checkbox_buscar_cuenta)
         
         layout_principal.addWidget(group_inputs)
 
@@ -89,6 +95,27 @@ class BuscadorSoportesNuevosWidget(QWidget):
         directory = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta")
         if directory:
             line_edit_widget.setText(directory)
+
+    def _on_buscar_cuenta_toggled(self, checked):
+        if checked:
+            self.editor_facturas.setPlaceholderText(
+                "Pega aquí la lista de fecha y cuenta de cobro (una por línea).\n"
+                "Ejemplo:\n"
+                "8/01/2026\t73990\n"
+                "5/01/2026\t74082"
+            )
+            if not self.line_busqueda.text():
+                self.line_busqueda.setText("W:\\CUENTAS DE COBRO")
+        else:
+            self.editor_facturas.setPlaceholderText(
+                "Pega aquí la lista de facturas con su serie (una por línea).\n"
+                "Ejemplo:\n"
+                "coex12345\n"
+                "fecr67890\n"
+                "ferr2722"
+            )
+            if self.line_busqueda.text() == "W:\\CUENTAS DE COBRO":
+                self.line_busqueda.clear()
             
     def iniciar_proceso(self):
         facturas_raw = self.editor_facturas.toPlainText().strip()
@@ -105,6 +132,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
 
         facturas_con_serie = [line.strip() for line in facturas_raw.splitlines() if line.strip()]
         solo_factura = self.checkbox_solo_factura.isChecked()
+        buscar_cuenta = self.checkbox_buscar_cuenta.isChecked()
 
         self.cancelacion_solicitada = False
         self._actualizar_estado_ejecucion(True)
@@ -112,7 +140,13 @@ class BuscadorSoportesNuevosWidget(QWidget):
         self.log_viewer.append("Iniciando proceso...")
         
         self.thread = QThread()
-        self.worker = BuscadorSoportesNuevosWorker(facturas_con_serie, dir_busqueda, dir_destino, solo_factura=solo_factura)
+        self.worker = BuscadorSoportesNuevosWorker(
+            facturas_con_serie, 
+            dir_busqueda, 
+            dir_destino, 
+            solo_factura=solo_factura, 
+            buscar_cuenta_cobro=buscar_cuenta
+        )
         self.worker.moveToThread(self.thread)
         
         self.worker.log_generado.connect(self.actualizar_log)

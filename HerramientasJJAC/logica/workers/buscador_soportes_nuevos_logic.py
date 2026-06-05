@@ -39,12 +39,13 @@ class BuscadorSoportesNuevosWorker(QObject):
     progreso_actualizado = Signal(str, float)
     proceso_finalizado = Signal()
 
-    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str, solo_factura: bool = False):
+    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str, solo_factura: bool = False, buscar_cuenta_cobro: bool = False):
         super().__init__()
         self.facturas_con_serie = facturas_con_serie
         self.dir_busqueda = dir_busqueda
         self.dir_destino = dir_destino
         self.solo_factura = solo_factura
+        self.buscar_cuenta_cobro = buscar_cuenta_cobro
         self.esta_cancelado = False
         self.exitos_lista = []
         self.fallos_lista = []
@@ -64,6 +65,10 @@ class BuscadorSoportesNuevosWorker(QObject):
         self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
     def ejecutar(self):
+        if self.buscar_cuenta_cobro:
+            self._ejecutar_buscar_cuenta_cobro()
+            return
+
         self._log("<b>Iniciando búsqueda y copia de soportes NUEVOS...</b>", COLOR_INFO)
         self._log(f"Directorio de Búsqueda: {self.dir_busqueda}")
         self._log(f"Directorio de Destino: {self.dir_destino}")
@@ -1421,3 +1426,183 @@ class BuscadorSoportesNuevosWorker(QObject):
     def cancelar(self):
         self._log("<b>Cancelación solicitada. Finalizando proceso NU...</b>", COLOR_WARNING)
         self.esta_cancelado = True
+
+    def _ejecutar_buscar_cuenta_cobro(self):
+        self._log("<b>Iniciando búsqueda de cuentas de cobro de facturación...</b>", COLOR_INFO)
+        self._log(f"Directorio de Búsqueda: {self.dir_busqueda}")
+        self._log(f"Directorio de Destino: {self.dir_destino}")
+
+        # Parse input lines
+        unique_cuentas = {}
+        pending_date = None  # Stores (year, month, day)
+        self._log(f"Cantidad de líneas leídas: {len(self.facturas_con_serie)}")
+        for line in self.facturas_con_serie:
+            line_str = line.strip()
+            if not line_str:
+                continue
+            self._log(f"Analizando línea: {repr(line_str)}")
+            # Ignore headers
+            if any(header in line_str.lower() for header in ("fecha", "radicación", "cuenta", "cobro", "factura")):
+                self._log(f"-> Línea omitida por cabecera", COLOR_WARNING)
+                continue
+            
+            match_date = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', line_str)
+            if match_date:
+                day = int(match_date.group(1))
+                month = int(match_date.group(2))
+                year = int(match_date.group(3))
+                
+                date_str = match_date.group(0)
+                line_without_date = line_str.replace(date_str, "")
+                numbers = re.findall(r'\b\d+\b', line_without_date)
+                if numbers:
+                    # Date and account number on the same line
+                    cuenta = numbers[0]
+                    if cuenta not in unique_cuentas:
+                        unique_cuentas[cuenta] = (year, month, day)
+                        self._log(f"Registrada cuenta: <b>{cuenta}</b> (Fecha: {day:02d}/{month:02d}/{year})", COLOR_DEFAULT)
+                    else:
+                        self._log(f"-> Cuenta {cuenta} duplicada, omitida.")
+                    pending_date = None
+                else:
+                    # Only date on this line, save it for the next line
+                    pending_date = (year, month, day)
+                    self._log(f"-> Fecha detectada: {day:02d}/{month:02d}/{year}. Esperando número de cuenta en la siguiente línea...")
+            else:
+                # No date on this line. Check if there's an account number and a pending date
+                numbers = re.findall(r'\b\d+\b', line_str)
+                if numbers and pending_date:
+                    cuenta = numbers[0]
+                    year, month, day = pending_date
+                    if cuenta not in unique_cuentas:
+                        unique_cuentas[cuenta] = (year, month, day)
+                        self._log(f"Registrada cuenta (líneas continuas): <b>{cuenta}</b> (Fecha: {day:02d}/{month:02d}/{year})", COLOR_DEFAULT)
+                    else:
+                        self._log(f"-> Cuenta {cuenta} duplicada, omitida.")
+                    pending_date = None
+                else:
+                    self._log(f"-> Línea omitida: no coincide con fecha y no hay fecha pendiente anterior para asociar este número.", COLOR_WARNING)
+        
+        total_cuentas = len(unique_cuentas)
+        if total_cuentas == 0:
+            self._log("No se encontraron cuentas de cobro válidas para procesar.", COLOR_WARNING)
+            self.progreso_actualizado.emit("Finalizado", 100)
+            self.proceso_finalizado.emit()
+            return
+
+        self._total_facturas = total_cuentas
+        self._facturas_completadas = 0
+        
+        for i, (cuenta, (year, month, day)) in enumerate(unique_cuentas.items()):
+            if self.esta_cancelado:
+                break
+            
+            porcentaje = (i / total_cuentas) * 100
+            self.progreso_actualizado.emit(f"Buscando cuenta: {cuenta}", porcentaje)
+            self._log(f"<br><b>Procesando cuenta de cobro: {cuenta}</b> (Año: {year}, Mes: {month})", COLOR_INFO)
+            
+            found_files = []
+            
+            # 1. Look in the expected folder: W:\CUENTAS DE COBRO\<year>\<month_subfolder>
+            year_dir = os.path.join(self.dir_busqueda, str(year))
+            month_dir = None
+            if os.path.isdir(year_dir):
+                month_name = MESES.get(month)
+                try:
+                    for item in os.listdir(year_dir):
+                        item_path = os.path.join(year_dir, item)
+                        if os.path.isdir(item_path):
+                            if month_name and item.upper().startswith(month_name):
+                                month_dir = item_path
+                                break
+                            elif item.startswith(f"{month:02d}"):
+                                month_dir = item_path
+                                break
+                except Exception as e:
+                    self._log(f"Error listando año {year}: {e}", COLOR_ERROR)
+            
+            prefix_to_match = f"290-1-{cuenta}".lower()
+            
+            if month_dir and os.path.isdir(month_dir):
+                self._log(f"Buscando en carpeta esperada: {month_dir}")
+                try:
+                    for file_name in os.listdir(month_dir):
+                        file_path = os.path.join(month_dir, file_name)
+                        if os.path.isfile(file_path):
+                            if file_name.lower().startswith(prefix_to_match) and file_name.lower().endswith(".pdf"):
+                                found_files.append(file_path)
+                except Exception as e:
+                    self._log(f"Error listando mes {month}: {e}", COLOR_ERROR)
+            
+            # 2. Fallback: search recursively in the year directory
+            if not found_files and os.path.isdir(year_dir):
+                self._log(f"No se encontró en carpeta de mes. Buscando en todo el año {year}...", COLOR_WARNING)
+                try:
+                    for root, dirs, files in os.walk(year_dir):
+                        if self.esta_cancelado:
+                            break
+                        for file_name in files:
+                            if file_name.lower().startswith(prefix_to_match) and file_name.lower().endswith(".pdf"):
+                                found_files.append(os.path.join(root, file_name))
+                except Exception as e:
+                    self._log(f"Error buscando en año {year}: {e}", COLOR_ERROR)
+            
+            # 3. Fallback: search recursively in the entire search root directory
+            if not found_files and os.path.isdir(self.dir_busqueda):
+                self._log(f"No se encontró en el año {year}. Buscando en toda la raíz {self.dir_busqueda}...", COLOR_WARNING)
+                try:
+                    for root, dirs, files in os.walk(self.dir_busqueda):
+                        if self.esta_cancelado:
+                            break
+                        for file_name in files:
+                            if file_name.lower().startswith(prefix_to_match) and file_name.lower().endswith(".pdf"):
+                                found_files.append(os.path.join(root, file_name))
+                except Exception as e:
+                    self._log(f"Error buscando en raíz {self.dir_busqueda}: {e}", COLOR_ERROR)
+                            
+            if found_files:
+                found_files = sorted(list(set(found_files)))
+                self._log(f"Encontrados <b>{len(found_files)}</b> archivos para la cuenta {cuenta}:", COLOR_SUCCESS)
+                for f in found_files:
+                    self._log(f"- {os.path.basename(f)}", COLOR_SUCCESS)
+                
+                try:
+                    if not os.path.isdir(self.dir_destino):
+                        os.makedirs(self.dir_destino, exist_ok=True)
+                    
+                    copied_any = False
+                    for file_path in found_files:
+                        dest_path = os.path.join(self.dir_destino, os.path.basename(file_path))
+                        if not os.path.exists(dest_path):
+                            shutil.copy2(file_path, dest_path)
+                            self._log(f"Copiado con éxito: {os.path.basename(file_path)}", COLOR_SUCCESS)
+                            copied_any = True
+                        else:
+                            self._log(f"Omitido, ya existe en destino: {os.path.basename(file_path)}", COLOR_DEFAULT)
+                            copied_any = True
+                            
+                    if copied_any:
+                        self._registrar_exito(f"Cuenta {cuenta} (copiada)")
+                    else:
+                        self._registrar_fallo(f"Cuenta {cuenta} (error al copiar)")
+                except Exception as e:
+                    self._log(f"Error al copiar archivos para la cuenta {cuenta}: {e}", COLOR_ERROR)
+                    self._registrar_fallo(f"Cuenta {cuenta} (error copia)")
+            else:
+                self._log(f"❌ No se encontró ningún documento para la cuenta {cuenta} (patrón '290-1-{cuenta}')", COLOR_ERROR)
+                self._registrar_fallo(f"Cuenta {cuenta} (no encontrada)")
+                
+            self._facturas_completadas += 1
+            
+        self.progreso_actualizado.emit("Operación completada.", 100)
+        self._log(f"<br><b>--- RESUMEN ---</b>", COLOR_INFO)
+        self._log(f"<b>Cuentas de cobro encontradas ({len(self.exitos_lista)}):</b>", COLOR_SUCCESS)
+        for exito in self.exitos_lista:
+            self._log(f"- {exito}", COLOR_SUCCESS)
+        
+        self._log(f"<br><b>Cuentas de cobro no encontradas ({len(self.fallos_lista)}):</b>", COLOR_WARNING)
+        for fallo in self.fallos_lista:
+            self._log(f"- {fallo}", COLOR_WARNING)
+
+        self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
+        self.proceso_finalizado.emit()
