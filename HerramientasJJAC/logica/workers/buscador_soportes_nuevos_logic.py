@@ -39,13 +39,14 @@ class BuscadorSoportesNuevosWorker(QObject):
     progreso_actualizado = Signal(str, float)
     proceso_finalizado = Signal()
 
-    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str, solo_factura: bool = False, buscar_cuenta_cobro: bool = False):
+    def __init__(self, facturas_con_serie: list[str], dir_busqueda: str, dir_destino: str, solo_factura: bool = False, buscar_cuenta_cobro: bool = False, unir_cuentas_cobro: bool = False):
         super().__init__()
         self.facturas_con_serie = facturas_con_serie
         self.dir_busqueda = dir_busqueda
         self.dir_destino = dir_destino
         self.solo_factura = solo_factura
         self.buscar_cuenta_cobro = buscar_cuenta_cobro
+        self.unir_cuentas_cobro = unir_cuentas_cobro
         self.esta_cancelado = False
         self.exitos_lista = []
         self.fallos_lista = []
@@ -65,6 +66,10 @@ class BuscadorSoportesNuevosWorker(QObject):
         self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
     def ejecutar(self):
+        if self.unir_cuentas_cobro:
+            self._ejecutar_unir_cuentas_cobro()
+            return
+
         if self.buscar_cuenta_cobro:
             self._ejecutar_buscar_cuenta_cobro()
             return
@@ -1207,6 +1212,8 @@ class BuscadorSoportesNuevosWorker(QObject):
                         f"(PDF: {len(pdfs)}, complementarios: {len(complementarios)}).",
                         COLOR_SUCCESS,
                     )
+                    normalizada = self._normalizar_factura(factura_limpia)
+                    numero_factura = normalizada[1] if normalizada else None
                     ruta_destino_especifica = self._obtener_directorio_destino(factura_limpia, numero_factura)
                     self._log(f"-> Carpeta destino determinada: {os.path.basename(ruta_destino_especifica)}", COLOR_INFO)
 
@@ -1604,5 +1611,157 @@ class BuscadorSoportesNuevosWorker(QObject):
         for fallo in self.fallos_lista:
             self._log(f"- {fallo}", COLOR_WARNING)
 
+        self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
+        self.proceso_finalizado.emit()
+
+    def _ejecutar_unir_cuentas_cobro(self):
+        self._log("<b>Iniciando proceso de unir cuentas de cobro con facturas...</b>", COLOR_INFO)
+        self._log(f"Ruta Cuentas de Cobro: {self.dir_busqueda}")
+        self._log(f"Ruta Facturas: {self.dir_destino}")
+        
+        # Parse inputs
+        tokens = []
+        for line in self.facturas_con_serie:
+            for t in re.split(r'\s+', line.strip()):
+                if t.strip():
+                    tokens.append(t.strip())
+        
+        # Filter out headers
+        header_keywords = {"fecha", "radicacion", "radicación", "cuenta", "cobro", "factura", "facturas", "serie"}
+        tokens = [t for t in tokens if t.lower() not in header_keywords]
+        
+        pares = []
+        for i in range(0, len(tokens) - 1, 2):
+            pares.append((tokens[i], tokens[i+1]))
+            
+        if len(tokens) % 2 != 0:
+            self._log(f"-> Advertencia: Número impar de elementos detectado. El último elemento ({tokens[-1]}) fue omitido.", COLOR_WARNING)
+        
+        if not pares:
+            self._log("No se encontraron pares válidos de Factura y Cuenta de Cobro para procesar.", COLOR_WARNING)
+            self.progreso_actualizado.emit("Finalizado", 100)
+            self.proceso_finalizado.emit()
+            return
+            
+        self._total_facturas = len(pares)
+        self._facturas_completadas = 0
+        
+        from logica.core.procesador_pdf import pypdf
+        
+        for i, (factura, cuenta) in enumerate(pares):
+            if self.esta_cancelado:
+                break
+                
+            porcentaje = (i / len(pares)) * 100
+            self.progreso_actualizado.emit(f"Procesando: {factura}", porcentaje)
+            self._log(f"<br><b>Procesando: Factura {factura} y Cuenta {cuenta}</b>", COLOR_INFO)
+            
+            # 1. Locate Invoice PDF (contains `factura` in name, ending with .pdf)
+            factura_pdf_path = None
+            patron_factura = re.compile(rf"{re.escape(factura)}", re.IGNORECASE)
+            
+            for folder in [self.dir_destino, self.dir_busqueda]:
+                try:
+                    for root, dirs, files in os.walk(folder):
+                        if self.esta_cancelado:
+                            break
+                        for file_name in files:
+                            if file_name.lower().endswith(".pdf") and patron_factura.search(file_name):
+                                factura_pdf_path = os.path.join(root, file_name)
+                                break
+                        if factura_pdf_path:
+                            break
+                except Exception as e:
+                    self._log(f"Error buscando factura {factura} en {folder}: {e}", COLOR_ERROR)
+                if factura_pdf_path:
+                    break
+                
+            if not factura_pdf_path:
+                self._log(f"❌ Factura PDF no encontrada para: {factura} (buscado en {self.dir_destino} y {self.dir_busqueda})", COLOR_ERROR)
+                self._registrar_fallo(f"Factura {factura} (PDF no encontrado)")
+                self._facturas_completadas += 1
+                continue
+                
+            self._log(f"Encontrada Factura PDF: {os.path.basename(factura_pdf_path)}")
+            
+            # 2. Locate Cuenta de Cobro PDF
+            cuenta_pdf_path = None
+            prefix_to_match = f"290-1-{cuenta}".lower()
+            
+            for folder in [self.dir_busqueda, self.dir_destino]:
+                try:
+                    # Try prefix first
+                    for root, dirs, files in os.walk(folder):
+                        if self.esta_cancelado:
+                            break
+                        for file_name in files:
+                            if file_name.lower().endswith(".pdf") and file_name.lower().startswith(prefix_to_match):
+                                cuenta_pdf_path = os.path.join(root, file_name)
+                                break
+                        if cuenta_pdf_path:
+                            break
+                    
+                    # Try fallback contains account number
+                    if not cuenta_pdf_path:
+                        for root, dirs, files in os.walk(folder):
+                            if self.esta_cancelado:
+                                break
+                            for file_name in files:
+                                if file_name.lower().endswith(".pdf") and (cuenta in file_name):
+                                    cuenta_pdf_path = os.path.join(root, file_name)
+                                    break
+                            if cuenta_pdf_path:
+                                break
+                except Exception as e:
+                    self._log(f"Error buscando cuenta de cobro {cuenta} en {folder}: {e}", COLOR_ERROR)
+                if cuenta_pdf_path:
+                    break
+                
+            if not cuenta_pdf_path:
+                self._log(f"❌ Cuenta de cobro PDF no encontrada para: {cuenta} (buscado en {self.dir_busqueda} y {self.dir_destino})", COLOR_ERROR)
+                self._registrar_fallo(f"Factura {factura} - Cuenta {cuenta} (Cuenta de cobro no encontrada)")
+                self._facturas_completadas += 1
+                continue
+                
+            self._log(f"Encontrada Cuenta de Cobro PDF: {os.path.basename(cuenta_pdf_path)}")
+            
+            # 3. Merge files
+            try:
+                escritor = pypdf.PdfWriter()
+                
+                lector_factura = pypdf.PdfReader(factura_pdf_path)
+                for pag in lector_factura.pages:
+                    escritor.add_page(pag)
+                    
+                lector_cuenta = pypdf.PdfReader(cuenta_pdf_path)
+                for pag in lector_cuenta.pages:
+                    escritor.add_page(pag)
+                    
+                temp_output_path = factura_pdf_path + ".tmp"
+                with open(temp_output_path, "wb") as f_out:
+                    escritor.write(f_out)
+                
+                if os.path.exists(factura_pdf_path):
+                    os.remove(factura_pdf_path)
+                os.rename(temp_output_path, factura_pdf_path)
+                
+                self._log(f"✅ Unida Cuenta de Cobro al final de Factura {factura} exitosamente.", COLOR_SUCCESS)
+                self._registrar_exito(f"Factura {factura} - Cuenta {cuenta} (Unida)")
+            except Exception as e:
+                self._log(f"❌ Error al unir Factura {factura} y Cuenta {cuenta}: {e}", COLOR_ERROR)
+                self._registrar_fallo(f"Factura {factura} - Cuenta {cuenta} (Error al unir: {e})")
+                
+            self._facturas_completadas += 1
+            
+        self.progreso_actualizado.emit("Operación completada.", 100)
+        self._log(f"<br><b>--- RESUMEN DE UNIÓN DE CUENTAS DE COBRO ---</b>", COLOR_INFO)
+        self._log(f"<b>Uniones exitosas ({len(self.exitos_lista)}):</b>", COLOR_SUCCESS)
+        for exito in self.exitos_lista:
+            self._log(f"- {exito}", COLOR_SUCCESS)
+            
+        self._log(f"<br><b>Uniones fallidas ({len(self.fallos_lista)}):</b>", COLOR_WARNING)
+        for fallo in self.fallos_lista:
+            self._log(f"- {fallo}", COLOR_WARNING)
+            
         self._log("<br><b>✅ Operación completada.</b>", COLOR_SUCCESS)
         self.proceso_finalizado.emit()

@@ -8,7 +8,6 @@ from logica.workers.unir_soportes_logic import UnirSoportesWorker
 from logica.workers.mover_respuesta_raiz_logic import MoverRespuestaRaizWorker
 from logica.workers.unir_axa_calixto_logic import unir_axa_calixto_logic
 from logica.workers.renombrar_previsora_logic import renombrar_previsora_logic
-from logica.workers.unir_norma_logic import unir_norma_logic
 from gui.common.componentes_comunes import SelectorCarpeta
 
 # Worker para la nueva funcionalidad de AXA Calixto
@@ -64,33 +63,7 @@ class RenombrarPrevisoraWorker(QObject):
     def stop(self):
         self.running = False
 
-class UnirNormaWorker(QObject):
-    progreso_actualizado = Signal(str, int)
-    proceso_finalizado = Signal(dict)
-    error_ocurrido = Signal(str)
 
-    def __init__(self, dir_origen, dir_destino, lista_facturas):
-        super().__init__()
-        self.dir_origen = dir_origen
-        self.dir_destino = dir_destino
-        self.lista_facturas = lista_facturas
-        self.running = True
-
-    def ejecutar(self):
-        try:
-            unir_norma_logic(
-                self.dir_origen,
-                self.dir_destino,
-                self.lista_facturas,
-                self.progreso_actualizado,
-                self.proceso_finalizado,
-                self.error_ocurrido
-            )
-        except Exception as e:
-            self.error_ocurrido.emit(str(e))
-
-    def stop(self):
-        self.running = False
 
 class ResultadosDialog(QDialog):
     """
@@ -358,8 +331,6 @@ class UnirSoportesWidget(QWidget):
         self.axa_worker = None
         self.previsora_worker_thread = None
         self.previsora_worker = None
-        self.norma_worker_thread = None
-        self.norma_worker = None
         self.modo_procesamiento = "Aseguradoras"
 
         self.crear_widgets()
@@ -381,7 +352,7 @@ class UnirSoportesWidget(QWidget):
         layout_seleccion.addWidget(self.selector_origen)
 
         # Filtro opcional por lista de facturas
-        label_filtro = QLabel("📃 Filtro de Facturas / IDs a procesar (Opcional, ej: para UNIR NORMA):")
+        label_filtro = QLabel("📃 Filtro de Facturas / IDs a procesar (Opcional):")
         label_filtro.setStyleSheet("font-size: 11px; margin-top: 5px;")
         layout_seleccion.addWidget(label_filtro)
         
@@ -525,28 +496,9 @@ class UnirSoportesWidget(QWidget):
             QPushButton:disabled { background-color: #95a5a6; }
         """)
         self.boton_procesar.clicked.connect(self.iniciar_procesamiento)
-        
-        self.boton_unir_norma = QPushButton("▶ Unir Norma")
-        self.boton_unir_norma.setMinimumHeight(45)
-        self.boton_unir_norma.setStyleSheet("""
-            QPushButton {
-                background-color: #16a085;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px;
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover { background-color: #1abc9c; }
-            QPushButton:pressed { background-color: #117a65; }
-            QPushButton:disabled { background-color: #95a5a6; }
-        """)
-        self.boton_unir_norma.clicked.connect(self.iniciar_union_norma)
 
         layout_botones_union = QHBoxLayout()
         layout_botones_union.addWidget(self.boton_procesar)
-        layout_botones_union.addWidget(self.boton_unir_norma)
         layout_acciones_principal.addLayout(layout_botones_union)
         
         # Botones de modo
@@ -649,8 +601,7 @@ class UnirSoportesWidget(QWidget):
         if (self.worker_thread and self.worker_thread.isRunning()) or \
            (self.mover_worker_thread and self.mover_worker_thread.isRunning()) or \
            (self.axa_worker_thread and self.axa_worker_thread.isRunning()) or \
-           (self.previsora_worker_thread and self.previsora_worker_thread.isRunning()) or \
-           (self.norma_worker_thread and self.norma_worker_thread.isRunning()):
+           (self.previsora_worker_thread and self.previsora_worker_thread.isRunning()):
             QMessageBox.warning(self, "Proceso en curso", "Ya hay un proceso en ejecución. Por favor, espere a que termine.")
             return True
         return False
@@ -742,31 +693,7 @@ class UnirSoportesWidget(QWidget):
         self.previsora_worker_thread.started.connect(self.previsora_worker.ejecutar)
         self.previsora_worker_thread.start()
 
-    def iniciar_union_norma(self):
-        if self.es_proceso_en_ejecucion(): return
 
-        dir_origen = self.selector_origen.path()
-        if not dir_origen:
-            QMessageBox.critical(self, "Error", "Debe seleccionar la carpeta de origen para Unir Norma.")
-            return
-
-        dir_destino = QFileDialog.getExistingDirectory(self, "Seleccione la carpeta donde se guardarán los PDFs finales")
-        if not dir_destino: return
-
-        lista_raw = self.text_lista_facturas.toPlainText().strip()
-        lista_facturas = [x.strip() for x in re.split(r'[,\s\n]+', lista_raw) if x.strip()]
-
-        self.deshabilitar_botones()
-        self.boton_unir_norma.setText("Procesando Norma...")
-
-        self.norma_worker_thread = QThread()
-        self.norma_worker = UnirNormaWorker(dir_origen, dir_destino, lista_facturas)
-        self.norma_worker.moveToThread(self.norma_worker_thread)
-        self.norma_worker.progreso_actualizado.connect(self.actualizar_progreso_axa)
-        self.norma_worker.proceso_finalizado.connect(self.proceso_norma_finalizado)
-        self.norma_worker.error_ocurrido.connect(self.proceso_axa_error)
-        self.norma_worker_thread.started.connect(self.norma_worker.ejecutar)
-        self.norma_worker_thread.start()
 
 
     def actualizar_progreso_simple(self, nombre_carpeta, porcentaje):
@@ -830,31 +757,20 @@ class UnirSoportesWidget(QWidget):
             self.previsora_worker_thread.quit()
             self.previsora_worker_thread.wait()
             
-    def proceso_norma_finalizado(self, resultados):
-        self.habilitar_botones()
-        self.label_progreso.setText("Proceso de Norma finalizado.")
-        self.barra_progreso.setValue(100)
-        self.norma_worker_thread.quit()
-        self.norma_worker_thread.wait()
-        
-        dialogo_resultados = ResultadosDialog(resultados, self)
-        dialogo_resultados.exec()
+
 
     def deshabilitar_botones(self):
         self.boton_unir_axa.setEnabled(False)
         self.boton_renombrar_previsora.setEnabled(False)
         self.boton_mover_respuestas.setEnabled(False)
         self.boton_procesar.setEnabled(False)
-        self.boton_unir_norma.setEnabled(False)
 
     def habilitar_botones(self):
         self.boton_unir_axa.setEnabled(True)
         self.boton_renombrar_previsora.setEnabled(True)
         self.boton_mover_respuestas.setEnabled(True)
         self.boton_procesar.setEnabled(True)
-        self.boton_unir_norma.setEnabled(True)
         self.boton_unir_axa.setText("Unir AXA Calixto")
         self.boton_renombrar_previsora.setText("Renombrar Previsora Calixto")
         self.boton_mover_respuestas.setText("Mover Respuestas a Raíz")
         self.boton_procesar.setText("▶ Unión")
-        self.boton_unir_norma.setText("▶ Unir Norma")

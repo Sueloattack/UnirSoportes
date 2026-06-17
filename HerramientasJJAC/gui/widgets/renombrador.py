@@ -46,6 +46,8 @@ class RenombradorWidget(QWidget):
         self.boton_glosa = QPushButton("Glosa")
         self.boton_sura_arl = QPushButton("SURA-ARL")
         self.boton_json = QPushButton("JSON")
+        self.boton_json_cascada = QPushButton("JSON Cascada/Carpetas")
+        self.boton_validar_aeo = QPushButton("Validar AEO")
 
         self.botones_modo = {
             'escolar': self.boton_escolar,
@@ -53,6 +55,8 @@ class RenombradorWidget(QWidget):
             'glosa': self.boton_glosa,
             'sura-arl': self.boton_sura_arl,
             'json': self.boton_json,
+            'json_cascada': self.boton_json_cascada,
+            'validar_aeo': self.boton_validar_aeo,
         }
 
         self.boton_escolar.clicked.connect(lambda: self.iniciar_proceso('escolar'))
@@ -60,12 +64,16 @@ class RenombradorWidget(QWidget):
         self.boton_glosa.clicked.connect(lambda: self.iniciar_proceso('glosa'))
         self.boton_sura_arl.clicked.connect(lambda: self.iniciar_proceso('sura-arl'))
         self.boton_json.clicked.connect(lambda: self.iniciar_proceso('json'))
+        self.boton_json_cascada.clicked.connect(lambda: self.iniciar_proceso('json_cascada'))
+        self.boton_validar_aeo.clicked.connect(lambda: self.iniciar_proceso('validar_aeo'))
 
         layout_acciones.addWidget(self.boton_escolar)
         layout_acciones.addWidget(self.boton_devolucion)
         layout_acciones.addWidget(self.boton_glosa)
         layout_acciones.addWidget(self.boton_sura_arl)
         layout_acciones.addWidget(self.boton_json)
+        layout_acciones.addWidget(self.boton_json_cascada)
+        layout_acciones.addWidget(self.boton_validar_aeo)
         grupo_acciones.setLayout(layout_acciones)
         layout_principal.addWidget(grupo_acciones)
 

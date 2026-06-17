@@ -29,6 +29,7 @@ from gui.widgets.furips_adres import FuripsAdresWidget
 from gui.widgets.epicrisis_adres import EpicrisisAdresWidget
 from gui.widgets.respuesta_glosas_salud_total import RespuestaGlosasSaludTotalWidget
 from gui.widgets.funcionalidades_previ import FuncionalidadesPreviWidget
+from gui.widgets.duplicador_archivos import DuplicadorArchivosWidget
 
 
 class VentanaPrincipal(QMainWindow):
@@ -116,6 +117,7 @@ class VentanaPrincipal(QMainWindow):
         cat_organizacion = self._add_category("ORGANIZACIÓN")
         self._add_widget(cat_organizacion, "Mover Carpetas", "MC", "widgets.movedor_carpetas", "MovedorCarpetasWidget")
         self._add_widget(cat_organizacion, "Mover archivos", "MA", "widgets.mover_archivos", "MoverArchivosWidget")
+        self._add_widget(cat_organizacion, "Duplicar archivo", "DUP", "widgets.duplicador_archivos", "DuplicadorArchivosWidget")
         self._add_widget(cat_organizacion, "Mover respuestas", "ORG", "widgets.organizador_respuestas", "OrganizadorRespuestasWidget")
         self._add_widget(cat_organizacion, "Mover respuestas ADRES", "PA", "widgets.organizador_respuestas_adres", "OrganizadorRespuestasAdresWidget")
         self._add_widget(cat_organizacion, "Mover XMLs", "XML", "widgets.organizador_xml", "OrganizadorXMLWidget")

@@ -40,6 +40,10 @@ class RenombradorWorker(QObject):
             self.renombrar_respuestas_en_raiz()
         elif self.modo == 'json':
             self.renombrar_json_en_raiz()
+        elif self.modo == 'json_cascada':
+            self.procesar_json_cascada_y_carpetas()
+        elif self.modo == 'validar_aeo':
+            self.validar_aeo_en_jsons()
         else:
             resultados = {'exitosos': [], 'fallidos': [{'archivo': 'N/A', 'razon': f"Modo '{self.modo}' desconocido."}]}
             self.proceso_finalizado.emit(resultados)
@@ -281,3 +285,264 @@ class RenombradorWorker(QObject):
 
     def cancelar(self):
         self.esta_cancelado = True
+
+    def procesar_json_cascada_y_carpetas(self):
+        import json
+        resultados = {'exitosos': [], 'fallidos': []}
+        try:
+            if not os.path.isdir(self.ruta_carpeta_raiz):
+                self.emit_fallo(resultados, "N/A", "La ruta seleccionada no existe o no es un directorio.")
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            # Escanear recursivamente todos los JSONs en la raíz y subcarpetas
+            todos_archivos = []
+            for root, dirs, files in os.walk(self.ruta_carpeta_raiz):
+                if self.esta_cancelado:
+                    break
+                for f in files:
+                    if f.lower().endswith('.json'):
+                        todos_archivos.append(os.path.join(root, f))
+
+            if not todos_archivos:
+                self.emit_fallo(resultados, "N/A", "No se encontraron archivos JSON en la carpeta ni en sus subcarpetas.", 'warning')
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            # Separar archivos base de los resultadosmsps
+            base_jsons = []
+            results_jsons = []
+            for filepath in todos_archivos:
+                filename = os.path.basename(filepath)
+                if filename.lower().startswith('resultadosmsps_'):
+                    results_jsons.append(filepath)
+                else:
+                    base_jsons.append(filepath)
+
+            self.progreso_actualizado.emit(f"<p style='color:{COLOR_INFO};'>Se encontraron {len(base_jsons)} JSONs base y {len(results_jsons)} JSONs de resultados (recursivo).</p>")
+
+            for base_path in base_jsons:
+                if self.esta_cancelado:
+                    break
+
+                base_dir = os.path.dirname(base_path)
+                base_file = os.path.basename(base_path)
+                
+                # Parse JSON base
+                data = None
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        with open(base_path, 'r', encoding=enc) as f:
+                            data = json.load(f)
+                            break
+                    except Exception:
+                        continue
+
+                if data is None:
+                    try:
+                        with open(base_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                    except Exception as e:
+                        self.emit_fallo(resultados, base_file, f"Error leyendo/parseando JSON: {e}")
+                        continue
+
+                nit = data.get("numDocumentoIdObligado", "800209891")
+                num_factura = data.get("numFactura")
+
+                if not num_factura:
+                    self.emit_fallo(resultados, base_file, "El JSON no contiene el campo 'numFactura'. Omitiendo.")
+                    continue
+
+                # Extraer serie y número de la factura
+                match = re.match(r'^([a-zA-Z]+)(\d+)$', num_factura.strip())
+                if match:
+                    serie = match.group(1).upper()
+                    numero = match.group(2)
+                else:
+                    serie = num_factura.strip().upper()
+                    numero = ""
+
+                # Buscar el JSON de resultados correspondiente en el mismo directorio (base_dir)
+                res_match_path = None
+                prefix_to_match = f"resultadosmsps_{num_factura.lower()}_"
+                suffix_to_match = "_a_cuv.json"
+
+                for rp in results_jsons:
+                    if os.path.dirname(rp) == base_dir:
+                        rf_name = os.path.basename(rp)
+                        if rf_name.lower().startswith(prefix_to_match) and rf_name.lower().endswith(suffix_to_match):
+                            res_match_path = rp
+                            break
+
+                if not res_match_path:
+                    self.emit_fallo(resultados, base_file, f"No se encontró el JSON de resultados correspondiente para {num_factura} en la misma carpeta (patrón: {prefix_to_match}...{suffix_to_match})")
+                    continue
+
+                # Procesar archivo de resultados
+                res_file = os.path.basename(res_match_path)
+                res_data = None
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        with open(res_match_path, 'r', encoding=enc) as f:
+                            res_data = json.load(f)
+                            break
+                    except Exception:
+                        continue
+
+                if res_data is None:
+                    try:
+                        with open(res_match_path, 'r', encoding='utf-8') as f:
+                            res_data = json.load(f)
+                    except Exception as e:
+                        self.emit_fallo(resultados, res_file, f"Error leyendo/parseando JSON de resultados: {e}")
+                        continue
+
+                # Determinar si ya está organizado (está en una subcarpeta)
+                # Si base_dir es exactamente ruta_carpeta_raiz, entonces no está organizado y creamos la carpeta.
+                ya_organizado = os.path.normpath(base_dir) != os.path.normpath(self.ruta_carpeta_raiz)
+
+                if ya_organizado:
+                    target_dir = base_dir
+                    folder_name = os.path.basename(base_dir)
+                else:
+                    folder_name = f"{nit}_{serie}_{numero}" if numero else f"{nit}_{serie}"
+                    target_dir = os.path.join(self.ruta_carpeta_raiz, folder_name)
+                    os.makedirs(target_dir, exist_ok=True)
+
+                # Escribir el JSON base formateado (cascada)
+                ruta_base_destino = os.path.join(target_dir, base_file)
+                # Escribir el JSON de resultados renombrado y formateado
+                new_res_name = res_file[:-11] + "_a-cuv.json"
+                ruta_res_destino = os.path.join(target_dir, new_res_name)
+
+                try:
+                    # Escribir base
+                    with open(ruta_base_destino, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=4, ensure_ascii=False)
+
+                    # Escribir resultados
+                    with open(ruta_res_destino, 'w', encoding='utf-8') as f:
+                        json.dump(res_data, f, indent=4, ensure_ascii=False)
+
+                    # Si NO es in-place (es decir, creamos carpeta), eliminamos los archivos origen de la raíz
+                    # Si SÍ es in-place, como el nombre del resultados cambia de _a_cuv.json a _a-cuv.json, eliminamos el _a_cuv.json original.
+                    if not ya_organizado:
+                        os.remove(base_path)
+                        os.remove(res_match_path)
+                    else:
+                        # Si es el mismo archivo base_path (mismo nombre y ruta), al escribirlo en w se sobreescribe, pero por seguridad si es in-place lo manejamos bien.
+                        # El archivo de resultados cambia de nombre por lo que hay que borrar el viejo.
+                        if os.path.exists(res_match_path) and os.path.normcase(res_match_path) != os.path.normcase(ruta_res_destino):
+                            os.remove(res_match_path)
+
+                    mensaje = f"Procesados JSONs en carpeta {folder_name} (Res resultados renombrado a {new_res_name})"
+                    resultados['exitosos'].append({"archivo": base_file, "razon": mensaje})
+                    self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'>- {mensaje}</p>")
+
+                except Exception as e:
+                    self.emit_fallo(resultados, base_file, f"Error al guardar/eliminar archivos: {e}")
+
+            if self.esta_cancelado:
+                self.progreso_actualizado.emit(f"<p style='color:{COLOR_WARNING};'>Proceso cancelado por el usuario.</p>")
+
+        except Exception as e:
+            self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado en cascada JSON: {e}")
+
+        self.proceso_finalizado.emit(resultados)
+
+    def validar_aeo_en_jsons(self):
+        import json
+        resultados = {'exitosos': [], 'fallidos': []}
+        try:
+            if not os.path.isdir(self.ruta_carpeta_raiz):
+                self.emit_fallo(resultados, "N/A", "La ruta seleccionada no existe o no es un directorio.")
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            # Obtener archivos JSON recursivamente
+            todos_archivos = []
+            for root, dirs, files in os.walk(self.ruta_carpeta_raiz):
+                if self.esta_cancelado:
+                    break
+                for f in files:
+                    if f.lower().endswith('.json'):
+                        todos_archivos.append(os.path.join(root, f))
+
+            if not todos_archivos:
+                self.emit_fallo(resultados, "N/A", "No se encontraron archivos .json en la carpeta ni en sus subcarpetas.", 'warning')
+                self.proceso_finalizado.emit(resultados)
+                return
+
+            self.progreso_actualizado.emit(f"<p style='color:{COLOR_INFO};'>Validando AEO en {len(todos_archivos)} archivos JSON (recursivo)...</p>")
+            
+            aeo_files = []
+            other_files = []
+            
+            for base_path in todos_archivos:
+                if self.esta_cancelado:
+                    break
+
+                base_file = os.path.basename(base_path)
+                # Ruta relativa para que el log se vea limpio y descriptivo
+                rel_path = os.path.relpath(base_path, self.ruta_carpeta_raiz)
+                
+                # Parse JSON
+                data = None
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        with open(base_path, 'r', encoding=enc) as f:
+                            data = json.load(f)
+                            break
+                    except Exception:
+                        continue
+
+                if data is None:
+                    try:
+                        with open(base_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                    except Exception as e:
+                        self.emit_fallo(resultados, rel_path, f"Error leyendo/parseando JSON: {e}")
+                        continue
+
+                # Check if it is AEO
+                is_aeo = False
+                
+                def buscar_cod_procedimiento(obj):
+                    if isinstance(obj, dict):
+                        if str(obj.get('codProcedimiento', '')).strip() == '931001':
+                            return True
+                        for k, v in obj.items():
+                            if buscar_cod_procedimiento(v):
+                                return True
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            if buscar_cod_procedimiento(item):
+                                return True
+                    return False
+
+                if buscar_cod_procedimiento(data):
+                    is_aeo = True
+
+                if is_aeo:
+                    aeo_files.append(rel_path)
+                    msg = f"Archivo {rel_path} -> <b>AEO (931001)</b>"
+                    self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'>- {msg}</p>")
+                else:
+                    other_files.append(rel_path)
+                    msg = f"Archivo {rel_path} -> Terapia Física / Otro"
+                    self.progreso_actualizado.emit(f"<p style='color:{COLOR_DEFAULT};'>- {msg}</p>")
+
+                resultados['exitosos'].append({"archivo": rel_path, "razon": f"Validado (AEO={is_aeo})"})
+
+            # Report Summary
+            self.progreso_actualizado.emit("<br><b>--- RESUMEN DE VALIDACIÓN ---</b>")
+            self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'><b>Total AEO encontrados: {len(aeo_files)}</b></p>")
+            for f in aeo_files:
+                self.progreso_actualizado.emit(f"<p style='color:{COLOR_SUCCESS};'>  - {f}</p>")
+            self.progreso_actualizado.emit(f"<p style='color:{COLOR_INFO};'>Total Terapia Física / Otros: {len(other_files)}</p>")
+
+        except Exception as e:
+            self.emit_fallo(resultados, "CRÍTICO", f"Error inesperado al validar AEO: {e}")
+
+        self.proceso_finalizado.emit(resultados)
+

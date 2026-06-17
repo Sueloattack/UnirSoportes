@@ -58,16 +58,27 @@ class BuscadorSoportesNuevosWidget(QWidget):
         label_info.setWordWrap(True)
         layout_inputs.addWidget(label_info)
 
+        layout_checkboxes = QHBoxLayout()
+
         self.checkbox_solo_factura = QCheckBox("Traer solo la factura principal")
         self.checkbox_solo_factura.setChecked(False)
         self.checkbox_solo_factura.setToolTip("Si está activo, NU copiará solo el PDF principal de la factura y omitirá soportes complementarios.")
-        layout_inputs.addWidget(self.checkbox_solo_factura)
+        self.checkbox_solo_factura.toggled.connect(self._on_solo_factura_toggled)
+        layout_checkboxes.addWidget(self.checkbox_solo_factura)
 
         self.checkbox_buscar_cuenta = QCheckBox("Buscar cuenta de cobro facturación")
         self.checkbox_buscar_cuenta.setChecked(False)
         self.checkbox_buscar_cuenta.setToolTip("Si está activo, buscará la cuenta de cobro en W:\\CUENTAS DE COBRO basándose en la fecha de radicación y número de cuenta.")
         self.checkbox_buscar_cuenta.toggled.connect(self._on_buscar_cuenta_toggled)
-        layout_inputs.addWidget(self.checkbox_buscar_cuenta)
+        layout_checkboxes.addWidget(self.checkbox_buscar_cuenta)
+
+        self.checkbox_unir_cuentas = QCheckBox("Unir cuentas de cobro facturación")
+        self.checkbox_unir_cuentas.setChecked(False)
+        self.checkbox_unir_cuentas.setToolTip("Si está activo, une cada cuenta de cobro al final de su respectiva factura.")
+        self.checkbox_unir_cuentas.toggled.connect(self._on_unir_cuentas_toggled)
+        layout_checkboxes.addWidget(self.checkbox_unir_cuentas)
+
+        layout_inputs.addLayout(layout_checkboxes)
         
         layout_principal.addWidget(group_inputs)
 
@@ -96,8 +107,32 @@ class BuscadorSoportesNuevosWidget(QWidget):
         if directory:
             line_edit_widget.setText(directory)
 
+    def _on_solo_factura_toggled(self, checked):
+        if checked:
+            self.checkbox_buscar_cuenta.setChecked(False)
+            self.checkbox_unir_cuentas.setChecked(False)
+
+    def _on_unir_cuentas_toggled(self, checked):
+        if checked:
+            self.checkbox_solo_factura.setChecked(False)
+            self.checkbox_buscar_cuenta.setChecked(False)
+            self.editor_facturas.setPlaceholderText(
+                "Pega aquí la lista de factura y número de cuenta de cobro (una por línea, separadas por espacio o tabulador).\n"
+                "Ejemplo:\n"
+                "FECR361182\t75231\n"
+                "FECR361587\t75231\n"
+                "FECR361699\t75231\n"
+                "FECR361286\t75232"
+            )
+            self.line_busqueda.setPlaceholderText("Ruta donde están las cuentas de cobro (ej: W:\\CUENTAS DE COBRO)")
+            self.line_destino.setPlaceholderText("Ruta donde están las facturas")
+        else:
+            self._restablecer_placeholders()
+
     def _on_buscar_cuenta_toggled(self, checked):
         if checked:
+            self.checkbox_solo_factura.setChecked(False)
+            self.checkbox_unir_cuentas.setChecked(False)
             self.editor_facturas.setPlaceholderText(
                 "Pega aquí la lista de fecha y cuenta de cobro (una por línea).\n"
                 "Ejemplo:\n"
@@ -106,7 +141,15 @@ class BuscadorSoportesNuevosWidget(QWidget):
             )
             if not self.line_busqueda.text():
                 self.line_busqueda.setText("W:\\CUENTAS DE COBRO")
+            self.line_busqueda.setPlaceholderText("Seleccione la carpeta raíz de la entidad en radicación...")
+            self.line_destino.setPlaceholderText("Selecciona la carpeta de destino para los soportes.")
         else:
+            if self.line_busqueda.text() == "W:\\CUENTAS DE COBRO":
+                self.line_busqueda.clear()
+            self._restablecer_placeholders()
+
+    def _restablecer_placeholders(self):
+        if not self.checkbox_buscar_cuenta.isChecked() and not self.checkbox_unir_cuentas.isChecked():
             self.editor_facturas.setPlaceholderText(
                 "Pega aquí la lista de facturas con su serie (una por línea).\n"
                 "Ejemplo:\n"
@@ -114,8 +157,8 @@ class BuscadorSoportesNuevosWidget(QWidget):
                 "fecr67890\n"
                 "ferr2722"
             )
-            if self.line_busqueda.text() == "W:\\CUENTAS DE COBRO":
-                self.line_busqueda.clear()
+            self.line_busqueda.setPlaceholderText("Seleccione la carpeta raíz de la entidad en radicación. El sistema intentará ubicar año, mes y cuenta por GEMA antes de buscar soportes.")
+            self.line_destino.setPlaceholderText("Selecciona la carpeta de destino para los soportes.")
             
     def iniciar_proceso(self):
         facturas_raw = self.editor_facturas.toPlainText().strip()
@@ -133,6 +176,7 @@ class BuscadorSoportesNuevosWidget(QWidget):
         facturas_con_serie = [line.strip() for line in facturas_raw.splitlines() if line.strip()]
         solo_factura = self.checkbox_solo_factura.isChecked()
         buscar_cuenta = self.checkbox_buscar_cuenta.isChecked()
+        unir_cuentas = self.checkbox_unir_cuentas.isChecked()
 
         self.cancelacion_solicitada = False
         self._actualizar_estado_ejecucion(True)
@@ -145,7 +189,8 @@ class BuscadorSoportesNuevosWidget(QWidget):
             dir_busqueda, 
             dir_destino, 
             solo_factura=solo_factura, 
-            buscar_cuenta_cobro=buscar_cuenta
+            buscar_cuenta_cobro=buscar_cuenta,
+            unir_cuentas_cobro=unir_cuentas
         )
         self.worker.moveToThread(self.thread)
         
