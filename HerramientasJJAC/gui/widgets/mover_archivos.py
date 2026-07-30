@@ -32,7 +32,7 @@ class MoverArchivosWidget(QWidget):
         layout_principal.setContentsMargins(20, 20, 20, 20)
         layout_principal.setSpacing(15)
 
-        label_titulo = QLabel("Mover PDFs por factura")
+        label_titulo = QLabel("Mover archivos por factura")
         label_titulo.setObjectName("AyudaTitulo")
         label_titulo.setAlignment(Qt.AlignCenter)
         layout_principal.addWidget(label_titulo)
@@ -43,7 +43,7 @@ class MoverArchivosWidget(QWidget):
 
         label_info = QLabel(
             "Pega las facturas una por línea o separadas por espacios/comas. "
-            "Se moverán o copiarán todos los PDFs cuyo nombre contenga la factura."
+            "Se moverán o copiarán todos los archivos (PDF/TXT) cuyo nombre contenga la factura."
         )
         label_info.setWordWrap(True)
         layout_inputs.addWidget(label_info)

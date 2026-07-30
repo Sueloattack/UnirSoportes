@@ -66,8 +66,8 @@ def mover_archivos_por_factura(lista_facturas, origen, destino):
         encontrados_para_esta_factura = 0
 
         for nombre_archivo in archivos:
-            # Comprobar si es PDF (ignora mayúsculas/minúsculas en extensión)
-            if not nombre_archivo.lower().endswith(".pdf"):
+            # Comprobar si es PDF o TXT (ignora mayúsculas/minúsculas en extensión)
+            if not nombre_archivo.lower().endswith((".pdf", ".txt")):
                 continue
 
             # Comprobar si la factura está en el nombre (ignora mayúsculas/minúsculas)
@@ -103,7 +103,7 @@ def mover_archivos_por_factura(lista_facturas, origen, destino):
             print(f" - {f}")
 
 if __name__ == "__main__":
-    print("=== SCRIPT PARA MOVER PDFS POR LISTADO DE FACTURAS ===\n")
+    print("=== SCRIPT PARA MOVER PDFS/TXTS POR LISTADO DE FACTURAS ===\n")
     
     # 1. Obtener listado de facturas
     facturas = obtener_input_multilinea("Introduce (o pega) el listado de facturas:")

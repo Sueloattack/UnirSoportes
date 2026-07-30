@@ -86,6 +86,7 @@ class FuncionalidadesPreviWidget(QWidget):
         self.combo_modo_busqueda.addItem("Estándar (HC + CRC)", "1")
         self.combo_modo_busqueda.addItem("Completa (HC + CRC + FURIPS)", "2")
         self.combo_modo_busqueda.addItem("Solo HC y FURIPS", "4")
+        self.combo_modo_busqueda.addItem("Aceptadas (Rta Glosa + Nota Crédito)", "6")
         modo_layout.addWidget(self.combo_modo_busqueda)
 
         self.ruta_origen_busqueda_le, ly_origen = crear_selector_carpeta("Carpeta Origen:", "Seleccionar carpeta de origen")
@@ -116,14 +117,30 @@ class FuncionalidadesPreviWidget(QWidget):
         self.combo_modo_compresion = QComboBox()
         self.combo_modo_compresion.addItem("Estándar (EPI, PDX, CRC)", "1")
         self.combo_modo_compresion.addItem("Completa (EPI, PDX, CRC, FURIPS)", "2")
+        self.combo_modo_compresion.addItem("Solo FURIPS (FURIPS)", "3")
+        self.combo_modo_compresion.addItem("Simultánea Soportes + FURIPS (Doble carpeta)", "4")
+        self.combo_modo_compresion.currentIndexChanged.connect(self._actualizar_visibilidad_compresion)
         modo_layout.addWidget(self.combo_modo_compresion)
 
-        self.ruta_origen_compresion_le, ly_origen = crear_selector_carpeta("Carpeta con PDFs:", "Seleccionar carpeta origen")
-        self.ruta_destino_compresion_le, ly_destino = crear_selector_carpeta("Carpeta destino ZIP:", "Seleccionar carpeta destino")
+        self.ruta_origen_compresion_le, ly_origen = crear_selector_carpeta("Carpeta Soportes origen:", "Seleccionar carpeta origen de soportes")
+        self.ruta_destino_compresion_le, ly_destino = crear_selector_carpeta("Carpeta DESTINO ZIP Soportes (opcional / misma origen):", "Seleccionar carpeta destino de soportes")
+
+        self.widget_furips_compresion = QWidget()
+        ly_furips = QVBoxLayout(self.widget_furips_compresion)
+        ly_furips.setContentsMargins(0, 0, 0, 0)
+
+        self.ruta_origen_furips_compresion_le, ly_origen_furips = crear_selector_carpeta("Carpeta FURIPS origen:", "Seleccionar carpeta origen de FURIPS")
+        self.ruta_destino_furips_compresion_le, ly_destino_furips = crear_selector_carpeta("Carpeta DESTINO ZIP FURIPS (opcional / misma origen):", "Seleccionar carpeta destino de FURIPS")
+
+        ly_furips.addLayout(ly_origen_furips)
+        ly_furips.addLayout(ly_destino_furips)
 
         grupo_layout.addLayout(modo_layout)
         grupo_layout.addLayout(ly_origen)
         grupo_layout.addLayout(ly_destino)
+        grupo_layout.addWidget(self.widget_furips_compresion)
+
+        self.widget_furips_compresion.setVisible(False)
 
         self.boton_compresion = QPushButton("Comprimir en Lotes")
         self.boton_compresion.clicked.connect(self.ejecutar_compresion)
@@ -131,6 +148,43 @@ class FuncionalidadesPreviWidget(QWidget):
 
         layout.addWidget(grupo)
         layout.addStretch()
+
+    def _actualizar_visibilidad_compresion(self):
+        modo = self.combo_modo_compresion.currentData()
+        es_simultaneo = (modo == "4")
+        self.widget_furips_compresion.setVisible(es_simultaneo)
+
+    def ejecutar_compresion(self):
+        modo = self.combo_modo_compresion.currentData()
+        carpeta_origen = self.ruta_origen_compresion_le.text().strip()
+        carpeta_destino = self.ruta_destino_compresion_le.text().strip() or carpeta_origen
+
+        if modo == "4":
+            origen_furips = self.ruta_origen_furips_compresion_le.text().strip()
+            destino_furips = self.ruta_destino_furips_compresion_le.text().strip() or origen_furips
+
+            if not carpeta_origen or not origen_furips:
+                self.log_browser.append(
+                    f"<font color='{self.color_error}'>Debe seleccionar la carpeta origen de Soportes y la carpeta origen de FURIPS.</font>"
+                )
+                return
+
+            parametros = {
+                'modo_compresion': modo,
+                'carpeta_origen': [carpeta_origen, origen_furips],
+                'carpeta_destino': [carpeta_destino, destino_furips],
+            }
+        else:
+            if not carpeta_origen:
+                self.log_browser.append(f"<font color='{self.color_error}'>Seleccione la carpeta origen para la compresión.</font>")
+                return
+
+            parametros = {
+                'modo_compresion': modo,
+                'carpeta_origen': carpeta_origen,
+                'carpeta_destino': carpeta_destino,
+            }
+        self.lanzar_worker(parametros, "comprimir")
 
     def setup_tab_validacion(self):
         layout = QVBoxLayout(self.tab_validacion)
@@ -210,20 +264,8 @@ class FuncionalidadesPreviWidget(QWidget):
         }
         self.lanzar_worker(parametros, "buscar")
 
-    def ejecutar_compresion(self):
-        carpeta_origen = self.ruta_origen_compresion_le.text().strip()
-        carpeta_destino = self.ruta_destino_compresion_le.text().strip()
 
-        if not carpeta_origen or not carpeta_destino:
-            self.log_browser.append(f"<font color='{self.color_error}'>Seleccione la carpeta origen y destino para la compresión.</font>")
-            return
 
-        parametros = {
-            'modo_compresion': self.combo_modo_compresion.currentData(),
-            'carpeta_origen': carpeta_origen,
-            'carpeta_destino': carpeta_destino,
-        }
-        self.lanzar_worker(parametros, "comprimir")
 
     def ejecutar_validacion(self):
         facturas = self._obtener_facturas(self.text_facturas_validacion)

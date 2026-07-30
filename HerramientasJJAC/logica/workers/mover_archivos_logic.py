@@ -42,17 +42,17 @@ class MoverArchivosWorker(QObject):
         self.log_generado.emit(f"<p style='color:{color}; margin-top:0; margin-bottom:0;'>{mensaje}</p>")
 
     def ejecutar(self):
-        self._log(f"<b>Iniciando proceso para {self.accion} PDFs por factura...</b>", COLOR_INFO)
+        self._log(f"<b>Iniciando proceso para {self.accion} archivos por factura...</b>", COLOR_INFO)
         self._log(f"Directorio de origen: {self.dir_origen}")
         self._log(f"Directorio de destino: {self.dir_destino}")
-        self.progreso_actualizado.emit("Indexando PDFs del origen...", 0)
+        self.progreso_actualizado.emit("Indexando archivos del origen...", 0)
 
         try:
-            pdfs_indexados = self._indexar_pdfs()
-            self._log(f"Se indexaron {len(pdfs_indexados)} PDFs en el origen.", COLOR_INFO)
+            archivos_indexados = self._indexar_archivos()
+            self._log(f"Se indexaron {len(archivos_indexados)} archivos en el origen.", COLOR_INFO)
 
-            if not pdfs_indexados:
-                self._log("No se encontraron PDFs en la carpeta de origen.", COLOR_WARNING)
+            if not archivos_indexados:
+                self._log("No se encontraron archivos (PDF/TXT) en la carpeta de origen.", COLOR_WARNING)
                 self._resumen["facturas_sin_coincidencias"] = len(self.facturas)
                 self._emitir_resumen_final()
                 return
@@ -63,7 +63,7 @@ class MoverArchivosWorker(QObject):
 
             with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="mover-archivos") as executor:
                 futuros = {
-                    executor.submit(self._procesar_factura, factura, pdfs_indexados): factura
+                    executor.submit(self._procesar_factura, factura, archivos_indexados): factura
                     for factura in self.facturas
                 }
 
@@ -86,26 +86,26 @@ class MoverArchivosWorker(QObject):
 
         self._emitir_resumen_final()
 
-    def _indexar_pdfs(self) -> list[tuple[str, str]]:
-        pdfs = []
+    def _indexar_archivos(self) -> list[tuple[str, str]]:
+        archivos = []
         for root, _dirs, files in os.walk(self.dir_origen):
             if self.esta_cancelado:
                 break
             for filename in files:
-                if not filename.lower().endswith(".pdf"):
+                if not filename.lower().endswith((".pdf", ".txt")):
                     continue
                 ruta_completa = os.path.join(root, filename)
-                pdfs.append((filename.upper(), ruta_completa))
-        return pdfs
+                archivos.append((filename.upper(), ruta_completa))
+        return archivos
 
-    def _procesar_factura(self, factura: str, pdfs_indexados: list[tuple[str, str]]):
-        coincidencias = [ruta for nombre, ruta in pdfs_indexados if factura in nombre]
+    def _procesar_factura(self, factura: str, archivos_indexados: list[tuple[str, str]]):
+        coincidencias = [ruta for nombre, ruta in archivos_indexados if factura in nombre]
 
         if not coincidencias:
             with self._estado_lock:
                 self._resumen["facturas_sin_coincidencias"] += 1
-                self._fallos_lista.append(f"{factura} (sin PDFs)")
-            self._log(f"<br><b>{factura}</b>: no se encontraron PDFs coincidentes.", COLOR_WARNING)
+                self._fallos_lista.append(f"{factura} (sin archivos)")
+            self._log(f"<br><b>{factura}</b>: no se encontraron archivos coincidentes.", COLOR_WARNING)
             return
 
         archivos_movidos = 0
@@ -113,7 +113,7 @@ class MoverArchivosWorker(QObject):
         errores_factura = 0
 
         self._log(
-            f"<br><b>{factura}</b>: se encontraron {len(coincidencias)} PDFs coincidentes.",
+            f"<br><b>{factura}</b>: se encontraron {len(coincidencias)} archivos coincidentes.",
             COLOR_INFO,
         )
 
